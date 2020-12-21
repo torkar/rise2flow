@@ -1,0 +1,30 @@
+---
+title: "Rise 2 Flow"
+author: "R. Torkar & B. Penzenstadler"
+date: "`r Sys.Date()`"
+output: 
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+    scroll_highlight: yes
+    number_sections: false
+bibliography: references.bib
+csl: elsevier-harvard.csl
+link-citations: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup2, echo=FALSE, message=FALSE}
+library(brms)
+library(tidyverse)
+library(bayesplot)
+library(ggthemes)
+library(patchwork)
+rstan::rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+# Introduction

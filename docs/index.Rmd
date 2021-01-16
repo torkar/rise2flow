@@ -1,30 +1,149 @@
 ---
 title: "Rise 2 Flow"
-author: "R. Torkar & B. Penzenstadler"
-date: "`r Sys.Date()`"
+author: "B. Penzenstadler & R. Torkar"
+date: "First version: 2020-12-26. Current version: `r Sys.Date()`"
 output: 
   bookdown::html_document2:
     toc: true
     toc_float: true
     scroll_highlight: yes
-    number_sections: false
+    number_sections: true
 bibliography: references.bib
 csl: elsevier-harvard.csl
 link-citations: true
+linkcolor: blue
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+start.time <- Sys.time()
+knitr::opts_chunk$set(echo = FALSE)
 ```
 
 ```{r setup2, echo=FALSE, message=FALSE}
-library(brms)
-library(tidyverse)
-library(bayesplot)
-library(ggthemes)
-library(patchwork)
+library("brms") 
+library("tidyverse") 
+library("bayesplot")
+library("ggplot2")
+library("patchwork") 
+library("openxlsx")
+library("tidyverse")
+library("data.table")
 rstan::rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 ```
 
 # Introduction
+The Rise 2 Flow study used a number of instruments during the entry, exit, and weekly sessions (additionally personal data was collected during the entry session).
+
+For entry and exit sessions six instruments were used:
+
+* Mindful attention awareness scale (MAAS).^[https://ppc.sas.upenn.edu/resources/questionnaires-researchers/mindful-attention-awareness-scale]
+* Scale of positive and negative experience (SPANE).^[https://www.midss.org/content/scale-positive-and-negative-experience-spane-0]
+* Personal wellbeing index (PWB).^[http://www.acqol.com.au/instruments]
+* Positive thinking (PTS).^[https://www.psytoolkit.org/survey-library/pts.html]
+* Self efficacy (SE).^[https://sparqtools.org/mobility-measure/new-general-self-efficacy-scale/]
+* Perceived productivity (PP).^[https://www.hcp.med.harvard.edu/hpq/info.php]
+
+In addition, a seventh instrument, mini-IPIP, was added to the exit session to control for personality type.^[https://ipip.ori.org/MiniIPIPKey.htm]
+
+For the weekly sessions the WHO-5 well-being index was used (WHO-5).^[https://www.psykiatri-regionh.dk/who-5/who-5-questionnaires/Pages/default.aspx]
+
+To summarize, the study was executed according to,
+
+1. An entry survey, at time $t_{\mathrm{entry}}$
+2. A weekly survey, at time $t_{\mathrm{entry}+1}, \ldots, t_{\mathrm{entry}+13}$
+3. An exit survey, at time $t_{\mathrm{exit}}$
+
+The main question the study tries to answer is: **Is there a difference in the responses (i.e., higher/lower values on responses), across all or among some instruments, over time?**
+
+In order to answer that question we can first of all compare outcomes of $t_{\mathrm{entry}}$ and $t_{\mathrm{exit}}$, and contrast with personal data, e.g., age, gender, IPIP. Next, the weekly session can be used to investigate the trend over time, and perhaps see where a noticeable effect, if it exists, shows up.
+
+# Data cleaning
+
+First we load all five datasets. For each dataset, make sure we set correct variable types.
+
+```{r load, echo=TRUE}
+entry <- read.xlsx("../data/R2F Quant Comp Data Entry.xlsx")
+exit <- read.xlsx("../data/R2F Quant Comp Data Exit.xlsx")
+weekly <- read.xlsx("../data/R2F Quant Weekly.xlsx")
+ipip <- read.xlsx("../data/R2F IPIP.xlsx")
+pers <- read.xlsx("../data/R2F Pers Data.xlsx") # personal data
+```
+
+We need to set a number of columns as factors (ordered factors in many cases). A few statements below we also switch the order of the factors (see comment below). The reason we do this is that we will design a multilevel model, and if the questions go in opposite directions, partial pooling works against us.
+
+Additionally, when we have Yes/No answers, as we do in some questions below, we refrain from setting them as indicator variables, i.e., $0/1$, and instead use $1/2$. The main reason we do this is that we cannot assume there is more uncertainty about one of the categories, and it will make it easier to set appropriate priors [see @mcelreath20rethinking, pp. 154--155].
+
+```{r factorize, echo=TRUE, warning=FALSE}
+
+for(j in 3:17){
+  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Almost never", "Very infrequently", "Somewhat infrequently", "Somewhat frequently", "Very frequently", "Almost always"), ordered = TRUE))
+}
+
+for(j in 18:29){
+  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Very rarely or never", "Rarely", "Sometimes", "Often", "Very often or always"), ordered = TRUE))
+}
+
+for(j in 30:37){
+  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Strongly disagree", "Disagree", "Slightly disagree", "Mixed or neither agree nor disagree", "Slightly agree", "Agree", "Strongly agree"), ordered = TRUE))
+}
+
+# No == 1, Yes == 2 (never use 0/1 since we cannot assume there is more 
+# uncertainty about one of the categories)
+for(j in c(39,40,42,43,45,46,50,51,53,55,59)){
+  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("No","Yes")))
+}
+
+# switch the order here since questions are framed negatively (partial pooling)
+# No = 2, Yes = 1
+for(j in c(38,41,44,47,48,49,52,54,56,57,58)){
+  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Yes","No")))
+}
+
+for(j in 60:69){
+  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Hardly true","Rather true","Exactly true"), ordered = TRUE))
+}
+
+for(j in 70:76){
+  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("None of the time","A little of the time","Some of the time","Most of the time","All of the time"), ordered = TRUE))
+}
+
+for(j in 77:79){
+  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("1","2","3","4","5","6","7","8","9","10"), ordered = TRUE))
+}
+
+for(j in 80:80){
+  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("You were a lot worse than other workers","You were a little worse than other workers","You were somewhat worse than other workers","You were about average","You were somewhat better than other workers","You were a little better than other workers","You were a lot better than other workers"), ordered = TRUE))
+}
+
+```
+
+# Descriptive statistics
+
+# Model design
+
+## Prior predictive checks
+
+## Sampling
+
+## Posterior predictive checks
+
+## Diagnostics
+
+# Model comparison
+
+# Inference
+
+# Computational environment
+```{r}
+print(sessionInfo(), locale=FALSE)
+```
+
+Check how much time it takes to compile this document.
+
+```{r}
+end.time <- Sys.time()
+round((end.time - start.time), 3)
+```
+
+# References

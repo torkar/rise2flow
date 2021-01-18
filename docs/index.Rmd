@@ -1,7 +1,7 @@
 ---
 title: "Rise 2 Flow"
 author: "B. Penzenstadler & R. Torkar"
-date: "First version: 2020-12-26. Current version: `r Sys.Date()`."
+date: "First version: 2020-12-26. Current version: `r Sys.time()`."
 output: 
   bookdown::html_document2:
     toc: true
@@ -239,6 +239,16 @@ exit$t <- 1
 colnames(entry) <- gsub('_en', '', colnames(entry))
 colnames(exit) <- gsub('_ex', '', colnames(exit))
 
+# also remove all dashes and underscores in column names
+colnames(entry) <- gsub('_', '', colnames(entry))
+colnames(exit) <- gsub('_', '', colnames(exit))
+colnames(entry) <- gsub('-', '', colnames(entry))
+colnames(exit) <- gsub('-', '', colnames(exit))
+colnames(ipip) <- gsub('_', '', colnames(ipip))
+colnames(pers) <- gsub('_', '', colnames(pers))
+colnames(ipip) <- gsub('-', '', colnames(ipip))
+colnames(pers) <- gsub('-', '', colnames(pers))
+
 # add rows of entry and exit
 d <- rbind(entry, exit)
 
@@ -255,9 +265,46 @@ d <- ddply(d, .(ID), function(x){
 table(d$t)
 ```
 
-We have $13$ individuals with entry and exit surveys completely filled out.
+
+We have $13$ individuals with entry and exit surveys completely filled out. Let's also add the `ipip` and `pers` datasets.
+
+```{r, echo = TRUE}
+d <- inner_join(d, pers, by = "ID")
+d <- inner_join(d, ipip, by = "ID")
+
+```
+
+After joining these two datasets we have $12$ subjects in the dataset.
 
 # Model design
+
+<!-- TODO: Add IPIP data also, and compare IPIP model with non-IPIP model -->
+
+```{r design, echo = TRUE, cache = TRUE}
+bf1 <- bf(mvbind(MAASQ116,
+                 MAASQ216,
+                 MAASQ316,
+                 MAASQ416,
+                 MAASQ516,
+                 MAASQ616,
+                 MAASQ716,
+                 MAASQ816,
+                 MAASQ916,
+                 MAASQ1016,
+                 MAASQ1116,
+                 MAASQ1216,
+                 MAASQ1316,
+                 MAASQ1416,
+                 MAASQ1516) ~ 
+            1 + Age + Gender01 + Occupation + Living14 + t + (1 |c| ID))
+
+m <- brm(bf1,
+    family = cumulative,
+    data = d,
+    silent = TRUE,
+    refresh = 0
+    )
+```
 
 ## Prior predictive checks
 

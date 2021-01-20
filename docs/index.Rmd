@@ -28,6 +28,7 @@ library("ggplot2")
 library("patchwork") 
 library("openxlsx")
 library("data.table")
+library("here") # make sure Rmd and Rproj root is the same
 rstan::rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 ```
@@ -63,20 +64,18 @@ In order to answer that question we can first of all compare outcomes of $t_0$ a
 First we load all five datasets. For each dataset, make sure we set correct variable types.
 
 ```{r load, echo=TRUE}
-entry <- read.xlsx("../data/R2F Quant Comp Data Entry.xlsx")
-exit <- read.xlsx("../data/R2F Quant Comp Data Exit.xlsx")
-weekly <- read.xlsx("../data/R2F Quant Weekly.xlsx")
-ipip <- read.xlsx("../data/R2F IPIP.xlsx")
-pers <- read.xlsx("../data/R2F Pers Data.xlsx") # personal data
+entry <- read.xlsx(here("data/R2F Quant Comp Data Entry.xlsx"))
+exit <- read.xlsx(here("data/R2F Quant Comp Data Exit.xlsx"))
+weekly <- read.xlsx(here("data/R2F Quant Weekly.xlsx"))
+ipip <- read.xlsx(here("data/R2F IPIP.xlsx"))
+pers <- read.xlsx(here("data/R2F Pers Data.xlsx")) # personal data
 ```
 
 ## Data cleaning of `entry` and `exit` datasets
 
-We need to set a number of columns as factors (ordered factors in many cases). For a few statements below we also switch the order of the factors (see comment below). The reason we do this is that we will design a multilevel model, and if the questions go in opposite directions, partial pooling works against us.
+We need to set a number of columns as factors (ordered factors in many cases). Additionally, when we have Yes/No answers, as we do in some questions below, we set them to 0/1 since they will be modeled with a Bernoulli likelihood.
 
-Additionally, when we have Yes/No answers, as we do in some questions below, we refrain from setting them as indicator variables, i.e., $0/1$, and instead use $1/2$. The main reason we do this is that we cannot assume there is more uncertainty about one of the categories, and it will make it easier to set appropriate priors [see @mcelreath20rethinking, pp. 154--155].
-
-First we clearn the `entry` dataset.
+First we clean the `entry` dataset.
 
 ```{r clean-entry, echo=TRUE, warning=FALSE}
 for(j in 3:17){
@@ -91,17 +90,8 @@ for(j in 30:37){
   set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Strongly disagree", "Disagree", "Slightly disagree", "Mixed or neither agree nor disagree", "Slightly agree", "Agree", "Strongly agree"), ordered = TRUE))
 }
 
-# No == 1, Yes == 2 (never use 0/1 since we cannot assume there is more 
-# uncertainty about one of the categories)
-for(j in c(39,40,42,43,45,46,50,51,53,55,59)){
-  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("No","Yes")))
-}
-
-# switch the order here since questions are framed negatively (partial pooling)
-# No = 2, Yes = 1
-for(j in c(38,41,44,47,48,49,52,54,56,57,58)){
-  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Yes","No")))
-}
+for(i in 38:59)
+  entry[,eval(i)] <- ifelse(entry[eval(i)] == 'Yes', 1, 0)
 
 for(j in 60:69){
   set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Hardly true","Rather true","Exactly true"), ordered = TRUE))
@@ -135,17 +125,9 @@ for(j in 30:37){
   set(exit, i=NULL, j=j, value=factor(exit[[j]], levels = c("Strongly disagree", "Disagree", "Slightly disagree", "Mixed or neither agree nor disagree", "Slightly agree", "Agree", "Strongly agree"), ordered = TRUE))
 }
 
-# No == 1, Yes == 2 (never use 0/1 since we cannot assume there is more 
-# uncertainty about one of the categories)
-for(j in c(39,40,42,43,45,46,50,51,53,55,59)){
-  set(exit, i=NULL, j=j, value=factor(exit[[j]], levels = c("No","Yes")))
-}
+for(i in 38:59)
+  exit[,eval(i)] <- ifelse(exit[eval(i)] == 'Yes', 1, 0)
 
-# switch the order here since questions are framed negatively (partial pooling)
-# No = 2, Yes = 1
-for(j in c(38,41,44,47,48,49,52,54,56,57,58)){
-  set(exit, i=NULL, j=j, value=factor(exit[[j]], levels = c("Yes","No")))
-}
 
 for(j in 60:69){
   set(exit, i=NULL, j=j, value=factor(exit[[j]], levels = c("Hardly true","Rather true","Exactly true"), ordered = TRUE))
@@ -271,16 +253,123 @@ We have $13$ individuals with entry and exit surveys completely filled out. Let'
 ```{r, echo = TRUE}
 d <- inner_join(d, pers, by = "ID")
 d <- inner_join(d, ipip, by = "ID")
-
 ```
 
 After joining these two datasets we have $12$ subjects in the dataset.
 
 # Model design
 
-<!-- TODO: Add IPIP data also, and compare IPIP model with non-IPIP model -->
 
-```{r design, echo = TRUE, cache = TRUE}
+## Data-generative distribution
+In order to design an appropriate model, one of the things we need to make assumptions about is the underlying data-generative model, i.e., what model generated the type of data we have at our disposal. In short, there are four candidates: Cumulative, Continuation ratio, Stopping ratio, and Adjacent category. Let's use LOO to create identical models and then use the same data for all models to compare them from an information theoretical perspective.
+
+```{r likelihoods, echo = TRUE, warning=FALSE, cache = TRUE}
+bf1 <- bf(mvbind(MAASQ116,
+                 MAASQ216,
+                 MAASQ316,
+                 MAASQ416,
+                 MAASQ516,
+                 MAASQ616,
+                 MAASQ716,
+                 MAASQ816,
+                 MAASQ916,
+                 MAASQ1016,
+                 MAASQ1116,
+                 MAASQ1216,
+                 MAASQ1316,
+                 MAASQ1416,
+                 MAASQ1516) ~ 
+            1 )
+
+m0 <- brm(bf1,
+    family = cumulative,
+    data = d,
+    silent = TRUE,
+    refresh = 0
+    )
+
+mcr <- brm(bf1,
+    family = cratio,
+    data = d,
+    silent = TRUE,
+    refresh = 0
+    )
+msr <- brm(bf1,
+    family = sratio,
+    data = d,
+    silent = TRUE,
+    refresh = 0
+    )
+mac <- brm(bf1,
+    family = acat,
+    data = d,
+    silent = TRUE,
+    refresh = 0
+    )
+
+m0 <- add_criterion(m0, criterion = "loo")
+msr <- add_criterion(msr, criterion = "loo")
+mcr <- add_criterion(mcr, criterion = "loo")
+mac <- add_criterion(mac, criterion = "loo")
+
+loo_compare(m0, mcr, msr, mac)
+```
+
+Evidently, since $\Delta$SE is fairly large, in comparison to the relative difference in expected log pointwise predictive density ($\Delta$elpd), we can safely assume that there's no significant difference between the likelihoods and, thus, opt for the standard approach, i.e., the Cumulative distribution, in this case represented by $\mathcal{M}_0$.
+
+## Sampling
+
+We want a model that uses personal data (e.g., age) as predictors. The idea is to later see if any of the predictors have predictive capacity for our six different survey instruments.
+
+Let's create a full model where all predictors are added.
+
+First, design a model with predictors we take from personal data and compare with our null model ($\mathcal{M}_0$), together with our indicator $t$ for time, and a varying intercept `ID` that varies depending on subject.
+
+```{r predictors-pers, echo=TRUE, warnings=FALSE, cache = TRUE}
+bf1 <- bf(mvbind(MAASQ116,
+                 MAASQ216,
+                 MAASQ316,
+                 MAASQ416,
+                 MAASQ516,
+                 MAASQ616,
+                 MAASQ716,
+                 MAASQ816,
+                 MAASQ916,
+                 MAASQ1016,
+                 MAASQ1116,
+                 MAASQ1216,
+                 MAASQ1316,
+                 MAASQ1416,
+                 MAASQ1516) ~ 
+            1 + Age + Gender01 + Occupation + Living14 + t + (1|ID))
+
+m_pers <- brm(bf1,
+    family = cumulative,
+    data = d,
+    silent = TRUE,
+    refresh = 0
+    )
+
+m_pers <- add_criterion(m_pers, criterion = "loo")
+
+# compare the new model with our null model, it should hopefully be better...
+(l <- loo_compare(m0, m_pers))
+```
+
+Calculating the credible interval (95%) we can see that it doesn't cross zero, i.e., adding these predictors makes the relative out of sample prediction capability jump up even though we add five population-level predictors and one group-level predictor.
+
+```{r ci-loo, echo=TRUE, warnings=FALSE}
+l[2,1] + c(-1,1) * 1.96 * l[2,2]
+```
+
+Let's now sample all models with the same predictors we used above (visual prior and posterior predictive checks were done for each model).
+
+```{r m-maas, echo=TRUE, warning=FALSE, cache = TRUE}
+################################################################################
+#
+# MAAS
+#
+################################################################################
 bf1 <- bf(mvbind(MAASQ116,
                  MAASQ216,
                  MAASQ316,
@@ -298,27 +387,284 @@ bf1 <- bf(mvbind(MAASQ116,
                  MAASQ1516) ~ 
             1 + Age + Gender01 + Occupation + Living14 + t + (1 |c| ID))
 
-m <- brm(bf1,
+# Prior predictive checks have been conducted and the probability mass 
+# is distributed evenly on the outcome space
+p <- get_prior(bf1, data=d, family=cumulative) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+  
+         
+m_maas <- brm(bf1,
     family = cumulative,
     data = d,
+    prior = p,
+    #sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
     refresh = 0
     )
+
+# use the below to do prior and posterior predictive checks
+# change resp to the response variable you want to check 
+# pp_check(m_maas, resp = "MAASQ116", type = "bars, nsamples = 250) 
 ```
 
-## Prior predictive checks
+```{r m-spane, echo=TRUE, warning=FALSE, cache = TRUE}
+################################################################################
+#
+# SPANE
+#
+################################################################################
 
-## Sampling
+bf1 <- bf(mvbind(SPANEQ115,
+                 SPANEQ215,
+                 SPANEQ315,
+                 SPANEQ415,
+                 SPANEQ515,
+                 SPANEQ615,
+                 SPANEQ715,
+                 SPANEQ815,
+                 SPANEQ915,
+                 SPANEQ1015,
+                 SPANEQ1115,
+                 SPANEQ1215) ~ 
+            1 + Age + Gender01 + Occupation + Living14 + t + (1 |c| ID))
 
-## Posterior predictive checks
+p <- get_prior(bf1, data=d, family=cumulative) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_spane <- brm(bf1,
+    family = cumulative,
+    data = d,
+    prior = p,
+    # sample_prior = "only", # use if you only want to sample from prior
+    silent = TRUE,
+    refresh = 0
+    )
+
+# use the below to do prior and posterior predictive checks
+# change resp to the response variable you want to check 
+# pp_check(m_spane, resp = "SPANEQ115", type = "bars", nsamples = 250) 
+```
+```{r m-pwb, echo=TRUE, warning=FALSE, cache = TRUE}
+################################################################################
+#
+# PWB
+#
+################################################################################
+
+bf1 <- bf(mvbind(PWBQ117,
+                 PWBQ217,
+                 PWBQ317,
+                 PWBQ417,
+                 PWBQ517,
+                 PWBQ617,
+                 PWBQ717,
+                 PWBQ817) ~ 
+            1 + Age + Gender01 + Occupation + Living14 + t + (1 |c| ID))
+
+p <- get_prior(bf1, data=d, family=cumulative) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_pwb <- brm(bf1,
+    family = cumulative,
+    data = d,
+    prior = p,
+    # sample_prior = "only", # use if you only want to sample from prior
+    silent = TRUE,
+    refresh = 0
+    )
+
+# pp_check(m_pwb, resp = "PWBQ117", type = "bars", nsamples = 250) 
+```
+
+```{r m-pst, echo=TRUE, warning=FALSE, cache = TRUE}
+################################################################################
+#
+# PST
+#
+################################################################################
+# Here we move to a bernoulli since we have 0/1 outcome
+bf1 <- bf(mvbind(PSTQ101,
+                 PSTQ201,
+                 PSTQ301,
+                 PSTQ401,
+                 PSTQ501,
+                 PSTQ601,
+                 PSTQ701,
+                 PSTQ801,
+                 PSTQ901,
+                 PSTQ1001,
+                 PSTQ1101,
+                 PSTQ1201,
+                 PSTQ1301,
+                 PSTQ1401,
+                 PSTQ1501,
+                 PSTQ1601,
+                 PSTQ1701,
+                 PSTQ1801,
+                 PSTQ1901,
+                 PSTQ2001,
+                 PSTQ2101,
+                 PSTQ2201) ~ 
+            1 + Age + Gender01 + Occupation + Living14 + t + (1 |c| ID))
+
+p <- get_prior(bf1, data=d, family=bernoulli) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_pst <- brm(bf1,
+    family = bernoulli,
+    data = d,
+    prior = p,
+    # sample_prior = "only",
+    silent = TRUE,
+    refresh = 0
+    )
+
+# pp_check(m_pst, resp = "PSTQ101", type = "bars", nsamples = 250) 
+```
+```{r m-se, echo=TRUE, warning=FALSE, cache = TRUE}
+################################################################################
+#
+# SE - two models (Cumulative and Bernoulli), both multivariate 
+#
+################################################################################
+# NOTE: the first two questions can be analyzed as Bernoulli 
+bf1 <- bf(mvbind(#SEQ114, # this and the next outcome only has two categories
+                 #SEQ214,
+                 SEQ314,
+                 SEQ414,
+                 SEQ514,
+                 SEQ614,
+                 SEQ714,
+                 SEQ814,
+                 SEQ914,
+                 SEQ1014) ~
+            1 + Age + Gender01 + Occupation + Living14 + t + (1 |c| ID))
+
+p <- get_prior(bf1, data=d, family=cumulative) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_se <- brm(bf1,
+    family = cumulative,
+    data = d,
+    prior = p,
+    # sample_prior = "only",
+    silent = TRUE,
+    refresh = 0
+    )
+
+# pp_check(m_seq, resp = "SEQ314", type = "bars", nsamples = 250) 
+
+# next take the two questions that only had answers on two levels
+bf1 <- bf(mvbind(SEQ114,
+                 SEQ214) ~
+            1 + Age + Gender01 + Occupation + Living14 + t + (1 |c| ID))
+
+p <- get_prior(bf1, data=d, family=bernoulli) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_se2 <- brm(bf1,
+    family = bernoulli,
+    data = d,
+    prior = p,
+    # sample_prior = "only",
+    silent = TRUE,
+    refresh = 0
+    )
+
+# pp_check(m_seq2, resp = "SEQ114", type = "bars", nsamples = 250) 
+```
+
+```{r m-pph, echo=TRUE, warning=FALSE, cache = TRUE}
+################################################################################
+#
+# PPHQ
+#
+################################################################################
+
+
+bf1 <- bf(mvbind(PPHQ115,
+                 PPHQ215,
+                 PPHQ315,
+                 PPHQ415,
+                 PPHQ515,
+                 PPHQ615,
+                 PPHQ715,
+                 PPRQ1110,
+                 PPRQ2110,
+                 PPRQ3110,
+                 PPOQ117
+                 ) ~ 
+            1 + Age + Gender01 + Occupation + Living14 + t + (1 | ID))
+
+p <- get_prior(bf1, data=d, family=cumulative) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_pph <- brm(bf1,
+    family = cumulative,
+    data = d,
+    prior = p,
+    # sample_prior = "only",
+    silent = TRUE,
+    refresh = 0
+    )
+
+# pp_check(m_pphq, resp = "PPHQ115", type = "bars", nsamples = 250) 
+```
+
+So we have now sampled seven models. For each instrument we have one multivariate model ($>1$ outcome), where we also estimate the correlation between the outcome given the subject's ID. 
+
+Most of the models are using, as we've already discussed, the Cumulative family. However, in a few cases we use the Bernoulli family. First, we use it for outcomes that were binary (i.e., Yes/No outcomes). Second, we use it for two questions in the SE instrument ($\mathcal{M}_{\text{SE2}}$), which only had empirical outcomes on two levels. 
+
+Before we put any trust in these models we need to check a number of diagnostics.
 
 ## Diagnostics
 
-# Model comparison
+First, we check general HMC diagnostics. Second, we check that $\widehat{R} \leq 1.01$ and that the effective sample size (ESS) is $\geq 0.2$.
+
+```{r diagnostics, echo=T}
+models <- list(m_maas, m_spane, m_pwb, m_pst, m_se, m_se2, m_pph)
+
+# Check divergences, tree depth, energy for each model
+for(m in models) {
+  rstan::check_hmc_diagnostics(eval(m)$fit)
+}
+
+# Check rhat and neff
+for(m in models) {
+  if(max(rhat(eval(m)), na.rm=T) >= 1.01) # diag in corr matrix always NA
+    print("Warning: Rhat >= 1.01")
+  if(min(neff_ratio(eval(m)), na.rm=T) <= 0.2) # diag in corr matrix always NA
+    print("Warning: ESS <= 0.2")
+}
+```
+
+Hamiltonian Monte Carlo diagnostics indicate all is well, $\widehat{R} \leq 1.01$, and $\text{ESS} \geq 0.2$. One can also check traceplots for all models (i.e., using `plot(model)`).
 
 # Inference
 
 # Computational environment
+
 ```{r}
 print(sessionInfo(), locale=FALSE)
 ```

@@ -71,7 +71,7 @@ ipip <- read.xlsx(here("data/R2F IPIP.xlsx"))
 pers <- read.xlsx(here("data/R2F Pers Data.xlsx")) # personal data
 ```
 
-## Data cleaning of `entry` and `exit` datasets
+## `entry` and `exit` datasets
 
 We need to set a number of columns as factors (ordered factors in many cases). Additionally, when we have Yes/No answers, as we do in some questions below, we set them to 0/1 since they will be modeled with a Bernoulli likelihood.
 
@@ -146,7 +146,7 @@ for(j in 80:80){
 }
 ```
 
-## Data cleaning of `weekly` dataset
+## `weekly` dataset
 
 The `weekly` dataset contains five columns of the same type, which we set as ordered categorical.
 
@@ -156,7 +156,7 @@ for(j in 4:8){
 }
 ```
 
-## Data cleaning of `ipip` dataset
+## `ipip` dataset
 
 The mini-IPIP instrument uses only five levels for all 20 questions (ordered categorical).
 
@@ -166,7 +166,7 @@ for(j in 3:22){
 }
 ```
 
-## Data cleaning of `pers` dataset
+## `pers` dataset
 
 In the `pers` dataset we have a mix of variable types we need to deal with. `Age` should be scaled, `Gender` and `Occupation` set to 1/2, and `Living conditions` set to factors (unordered).
 

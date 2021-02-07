@@ -333,6 +333,34 @@ p1 + p2 + p3 + p4 + p5 +
 
 In short, very little happening over time according to the weekly instrument.
 
+## `daily` data
+
+Let's redo this bu for the `daily` dataset.
+
+```{r, cache = TRUE}
+daily$ID <- as.factor(daily$ID)
+daily$date_s <- as.numeric(daily$date)
+
+p <- get_prior(resp ~ 1 + gp(date_s) + (1| ID), data = daily, family = cumulative)
+p$prior[1] <- "normal(0,5)"
+p$prior[c(13,16)] <- "weibull(2,1)"
+
+m_daily <- brm(resp ~ 1 + gp(date_s) + (1| ID), 
+               data = daily, 
+               family = cumulative,
+               prior = p,
+               control = list(adapt_delta=0.9), 
+               iter = 8e3)
+```
+
+Sampled good but we needed to run the chains longer to fin the typical set.
+
+```{r}
+conditional_effects(m_daily)
+```
+
+Weak positive trend, but nothing siginificant really.
+
 ## Data-generative distribution
 Next, in order to design an appropriate model, one of the things we need to make assumptions about is the underlying data-generative model, i.e., what model generated the type of data we have at our disposal. In short, there are four candidates: Cumulative, Continuation ratio, Stopping ratio, and Adjacent category. Above we opted for a default `Cumulative`. Let's instead use LOO to create identical models and then use the same data for all models to compare them from an information theoretical perspective.
 

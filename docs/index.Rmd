@@ -53,7 +53,7 @@ To summarize, the study was executed according to,
 
 1. An entry survey, at time $t_0$
 2. A weekly survey, at time $t_{{t_0 + 1}}, \ldots, t_{{t_0+13}}$
-3. An exit survey, at time $t_1$
+3. An exit survey, at time $t_{0+13}$
 
 The main question the study tries to answer is: **Is there a difference in the responses (i.e., higher/lower values on responses), across all or among some instruments, over time?**
 
@@ -66,9 +66,10 @@ First we load all five datasets. For each dataset, make sure we set correct vari
 ```{r load, echo=TRUE}
 entry <- read.xlsx(here("data/R2F Quant Comp Data Entry.xlsx"))
 exit <- read.xlsx(here("data/R2F Quant Comp Data Exit.xlsx"))
-weekly <- read.xlsx(here("data/R2F Quant Weekly.xlsx"))
+weekly <- read.xlsx(here("data/R2F Quant Weekly.xlsx"), detectDates = T)
 ipip <- read.xlsx(here("data/R2F IPIP.xlsx"))
 pers <- read.xlsx(here("data/R2F Pers Data.xlsx")) # personal data
+daily <- read.xlsx(here("data/R2F Daily.xlsx"), detectDates = T) # yes, also daily data
 ```
 
 ## `entry` and `exit` datasets
@@ -152,7 +153,7 @@ The `weekly` dataset contains five columns of the same type, which we set as ord
 
 ```{r clean-weekly, warnings = FALSE, echo = TRUE}
 for(j in 4:8){
-  set(weekly, i=NULL, j=j, value=factor(weekly[[j]], levels = c("At not time", "Less than half of the time", "Some of the time", "More than half of the time",  "Most of the time", "All of the time"), ordered = TRUE))
+  set(weekly, i=NULL, j=j, value=factor(weekly[[j]], levels = c("At no time", "Less than half of the time", "Some of the time", "More than half of the time",  "Most of the time", "All of the time"), ordered = TRUE))
 }
 ```
 
@@ -248,20 +249,92 @@ table(d$t)
 ```
 
 
-We have $13$ individuals with entry and exit surveys completely filled out. Let's also add the `ipip` and `pers` datasets.
+We have $13$ individuals with entry and exit surveys completely filled out. Let's also add the `ipip` and `pers` datasets, and then use only individuals with complete data.
 
 ```{r, echo = TRUE}
 d <- inner_join(d, pers, by = "ID")
 d <- inner_join(d, ipip, by = "ID")
 ```
 
-After joining these two datasets we have $12$ subjects in the dataset.
+After joining these two datasets we have `r length(table(d$ID))` subjects in the dataset.
 
-# Model design
+# Model designs
 
+## `weekly` data
+
+We want to model the weekly instrument and how it varies over time $t$. In this case, $t$ will be modeled using a Gaussian Process and then each individual in the dataset will be modeled using a varying intercept.
+
+```{r}
+# Make sure ID is a factor
+weekly$ID <- as.factor(weekly$ID)
+
+# Also keep ordered categorical as integer Q1,..,Q5
+weekly$Q1 <- as.integer(weekly$WQ1_1_6)
+weekly$Q2 <- as.integer(weekly$WQ2_1_6)
+weekly$Q3 <- as.integer(weekly$WQ3_1_6)
+weekly$Q4 <- as.integer(weekly$WQ4_1_6)
+weekly$Q5 <- as.integer(weekly$WQ5_1_6)
+```
+
+```{r, cache=TRUE}
+# Let's use GP to model over time, it'll be the same priors for all
+p <- get_prior(WQ1_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
+               family = cumulative())
+p$prior[1] <- "normal(0,5)"
+p$prior[c(8,11)] <- "weibull(2,1)"
+
+WQ1gp <- brm(WQ1_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
+             family = cumulative(), prior = p, control = list(adapt_delta=0.95))
+
+WQ2gp <- brm(WQ2_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
+             family = cumulative(), prior = p, control = list(adapt_delta=0.95))
+
+WQ3gp <- brm(WQ3_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
+             family = cumulative(), prior = p, control = list(adapt_delta=0.95))
+
+WQ4gp <- brm(WQ4_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
+             family = cumulative(), prior = p, control = list(adapt_delta=0.96))
+
+WQ5gp <- brm(WQ5_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
+             family = cumulative(), prior = p, control = list(adapt_delta=0.95))
+```
+
+```{r}
+# Set the same y axis on all plots
+p1 <- plot(conditional_effects(WQ1gp), plot = FALSE)[[1]] + 
+  scale_y_continuous(name = "Q1", 
+                     limits = c(1, 6), 
+                     breaks = seq(1:6))
+
+p2 <- plot(conditional_effects(WQ2gp), plot = FALSE)[[1]] + 
+  scale_y_continuous(name = "Q2", 
+                     limits = c(1, 6), 
+                     breaks = seq(1:6))
+
+p3 <- plot(conditional_effects(WQ3gp), plot = FALSE)[[1]] + 
+  scale_y_continuous(name = "Q3", 
+                     limits = c(1, 6), 
+                     breaks = seq(1:6))
+
+p4 <- plot(conditional_effects(WQ4gp), plot = FALSE)[[1]] + 
+  scale_y_continuous(name = "Q4", 
+                     limits = c(1, 6), 
+                     breaks = seq(1:6))
+
+p5 <- plot(conditional_effects(WQ5gp), plot = FALSE)[[1]] + 
+  scale_y_continuous(name = "Q1", 
+                     limits = c(1, 6), 
+                     breaks = seq(1:6))
+
+p1 + p2 + p3 + p4 + p5 + 
+  plot_layout(ncol=2) + 
+  plot_annotation(title = 'Weekly instrument')
+```
+
+In short, very little happening over time according to the weekly instrument.
 
 ## Data-generative distribution
-In order to design an appropriate model, one of the things we need to make assumptions about is the underlying data-generative model, i.e., what model generated the type of data we have at our disposal. In short, there are four candidates: Cumulative, Continuation ratio, Stopping ratio, and Adjacent category. Let's use LOO to create identical models and then use the same data for all models to compare them from an information theoretical perspective.
+Next, in order to design an appropriate model, one of the things we need to make assumptions about is the underlying data-generative model, i.e., what model generated the type of data we have at our disposal. In short, there are four candidates: Cumulative, Continuation ratio, Stopping ratio, and Adjacent category. Above we opted for a default `Cumulative`. Let's instead use LOO to create identical models and then use the same data for all models to compare them from an information theoretical perspective.
 
 ```{r likelihoods, echo = TRUE, warning=FALSE, cache = TRUE}
 bf1 <- bf(mvbind(MAASQ116,
@@ -319,11 +392,9 @@ Evidently, since $\Delta$SE is fairly large, in comparison to the relative diffe
 
 ## Sampling
 
-We want a model that uses personal data (e.g., age) as predictors. The idea is to later see if any of the predictors have predictive capacity for our six different survey instruments.
+We want a model that uses personal data (e.g., age) as predictors. The idea is to later see if any of the predictors have predictive capacity for our six different survey instruments. Further down below we will also see if we can combine this with the `IPIP` data.
 
-Let's create a full model where all predictors are added.
-
-First, design a model with predictors we take from personal data and compare with our null model ($\mathcal{M}_0$), together with our indicator $t$ for time, and a varying intercept `ID` that varies depending on subject.
+First, design a model with predictors we from `personal` data and compare with our null model ($\mathcal{M}_0$), together with our indicator $t$ for time, and a varying intercept `ID` that varies depending on subject.
 
 ```{r predictors-pers, echo=TRUE, warnings=FALSE, cache = TRUE}
 bf1 <- bf(mvbind(MAASQ116,
@@ -642,7 +713,7 @@ Before we put any trust in these models we need to check a number of diagnostics
 
 First, we check general HMC diagnostics. Second, we check that $\widehat{R} \leq 1.01$ and that the effective sample size (ESS) is $\geq 0.2$.
 
-```{r diagnostics, echo=T}
+```{r diagnostics, echo=TRUE}
 models <- list(m_maas, m_spane, m_pwb, m_pst, m_se, m_se2, m_pph)
 
 # Check divergences, tree depth, energy for each model
@@ -660,6 +731,41 @@ for(m in models) {
 ```
 
 Hamiltonian Monte Carlo diagnostics indicate all is well, $\widehat{R} \leq 1.01$, and $\text{ESS} \geq 0.2$. One can also check traceplots for all models (i.e., using `plot(model)`).
+
+## Combining IPIP with weekly, daily, and entry/exit data
+
+Let's add several predictors to our model and see what happens. Our hypothesis is that `IPIP` covariates should have a stable predictive capability.
+
+```{r mFull, echo=TRUE, warning=FALSE, cache = TRUE}
+# TODO Combine weekly w/ IPIP
+
+bf1 <- bf(mvbind(MAASQ116,
+                 MAASQ216,
+                 MAASQ316,
+                 MAASQ416,
+                 MAASQ516,
+                 MAASQ616,
+                 MAASQ716,
+                 MAASQ816,
+                 MAASQ916,
+                 MAASQ1016,
+                 MAASQ1116,
+                 MAASQ1216,
+                 MAASQ1316,
+                 MAASQ1416,
+                 MAASQ1516) ~ 
+              1 + Age + Gender01 + Occupation + Living14 + t + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) + mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) + mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) + mo(IPIP2015) + (1 |c| ID))
+
+p <- get_prior(bf1, family = cumulative, data = d)
+p$prior[c(1,5:32)] <- "normal(0,1)"
+p$prior[2:3] <- "lkj(2)"
+p$prior[c(33:37,89:94,146:150,202:206,258:263,315:319,371:374,426:430,482:486,538:542,594:599,651:655,707:711,763:767,819:823)] <- "normal(0,5)"
+p$prior[c(38:40,95:97,151:153,207:209,264:266,320:322,375:377,431:433,487:489,543:545,600:602,656:658,712:714,768:770,824:826)] <- "weibull(2,1)"
+p$prior[c(41:60,98:117,154:173,210:229,267:286,323:342,378:397,434:453,490:509,546:565,603:622,659:678,715:734,771:790,827:846)] <- "dirichlet(2)"
+
+m_f <- brm(bf1, family = cumulative, data = d, prior = p)
+
+```
 
 # Inference
 

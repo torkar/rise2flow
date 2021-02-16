@@ -766,6 +766,14 @@ Let's add several predictors to our model and see what happens. Our hypothesis i
 
 ```{r mFull, echo=TRUE, warning=FALSE, cache = TRUE}
 # TODO Combine weekly w/ IPIP
+# TODO: 
+# * Use IPIP as preds for
+#   * MAAS
+#   * SPANE
+#   * PWB
+#   * PST
+#   * SE
+# * Use IPIP as preds with weekly
 
 bf1 <- bf(mvbind(MAASQ116,
                  MAASQ216,
@@ -792,7 +800,6 @@ p$prior[c(38:40,95:97,151:153,207:209,264:266,320:322,375:377,431:433,487:489,54
 p$prior[c(41:60,98:117,154:173,210:229,267:286,323:342,378:397,434:453,490:509,546:565,603:622,659:678,715:734,771:790,827:846)] <- "dirichlet(2)"
 
 m_f <- brm(bf1, family = cumulative, data = d, prior = p)
-
 ```
 
 # Inference

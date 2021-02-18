@@ -278,6 +278,9 @@ weekly$Q5 <- as.integer(weekly$WQ5_1_6)
 
 ```{r, cache=TRUE}
 # Let's use GP to model over time, it'll be the same priors for all
+weekly$Date_i <- as.numeric(weekly$Date)
+weekly <- weekly[complete.cases(weekly), ]
+
 p <- get_prior(WQ1_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
                family = cumulative())
 p$prior[1] <- "normal(0,5)"
@@ -349,17 +352,17 @@ m_daily <- brm(resp ~ 1 + gp(date_s) + (1| ID),
                data = daily, 
                family = cumulative,
                prior = p,
-               control = list(adapt_delta=0.9), 
-               iter = 8e3)
+               control = list(adapt_delta=0.95), 
+               iter = 8e3, threads = threading(2))
 ```
 
-Sampled good but we needed to run the chains longer to fin the typical set.
+Sampled good but we needed to run the chains longer to find the typical set.
 
 ```{r}
 conditional_effects(m_daily)
 ```
 
-Weak positive trend, but nothing siginificant really.
+Weak positive trend, but nothing significant really.
 
 ## Data-generative distribution
 Next, in order to design an appropriate model, one of the things we need to make assumptions about is the underlying data-generative model, i.e., what model generated the type of data we have at our disposal. In short, there are four candidates: Cumulative, Continuation ratio, Stopping ratio, and Adjacent category. Above we opted for a default `Cumulative`. Let's instead use LOO to create identical models and then use the same data for all models to compare them from an information theoretical perspective.
@@ -446,7 +449,8 @@ m_pers <- brm(bf1,
     family = cumulative,
     data = d,
     silent = TRUE,
-    refresh = 0
+    refresh = 0,
+    threads = threading(2)
     )
 
 m_pers <- add_criterion(m_pers, criterion = "loo")
@@ -501,7 +505,8 @@ m_maas <- brm(bf1,
     prior = p,
     #sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
-    refresh = 0
+    refresh = 0,
+    threads = threading(2)
     )
 
 # use the below to do prior and posterior predictive checks
@@ -542,7 +547,8 @@ m_spane <- brm(bf1,
     prior = p,
     # sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
-    refresh = 0
+    refresh = 0,
+    threads = threading(2)
     )
 
 # use the below to do prior and posterior predictive checks
@@ -578,7 +584,8 @@ m_pwb <- brm(bf1,
     prior = p,
     # sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
-    refresh = 0
+    refresh = 0,
+    threads = threading(2)
     )
 
 # pp_check(m_pwb, resp = "PWBQ117", type = "bars", nsamples = 250) 
@@ -663,7 +670,8 @@ m_se <- brm(bf1,
     prior = p,
     # sample_prior = "only",
     silent = TRUE,
-    refresh = 0
+    refresh = 0,
+    threads = threading(2)
     )
 
 # pp_check(m_seq, resp = "SEQ314", type = "bars", nsamples = 250) 
@@ -725,7 +733,8 @@ m_pph <- brm(bf1,
     prior = p,
     # sample_prior = "only",
     silent = TRUE,
-    refresh = 0
+    refresh = 0,
+    threads = threading(2)
     )
 
 # pp_check(m_pphq, resp = "PPHQ115", type = "bars", nsamples = 250) 
@@ -765,14 +774,12 @@ Hamiltonian Monte Carlo diagnostics indicate all is well, $\widehat{R} \leq 1.01
 Let's add several predictors to our model and see what happens. Our hypothesis is that `IPIP` covariates should have a stable predictive capability.
 
 ```{r mFull, echo=TRUE, warning=FALSE, cache = TRUE}
-# TODO: 
-# * Use IPIP as preds for exit instruments,
+# incl. IPIP as preds for exit instruments,
 #   * MAAS
 #   * SPANE
 #   * PWB
 #   * PST
 #   * SE
-# * Use IPIP as preds with weekly
 
 # Create new df with exit and pers+IPIP data. Use d but keep only rows where t=1 
 # (i.e., exit survey)
@@ -800,17 +807,194 @@ p$prior[1] <- "normal(0,1)"
 p$prior[2] <- "lkj(2)"
 p$prior[4] <- "normal(0,5)"
 
-m_maas_entry <- brm(bf1, family = cumulative, data = d2, prior = p, 
-                    threads = threading(2))
+m_maas_exit <- brm(bf1, family = cumulative, data = d2, prior = p, 
+                    threads = threading(2), refresh = 0)
 
+bf1 <- bf(mvbind(SPANEQ115,
+                 SPANEQ215,
+                 SPANEQ315,
+                 SPANEQ415,
+                 SPANEQ515,
+                 SPANEQ615,
+                 SPANEQ715,
+                 SPANEQ815,
+                 SPANEQ915,
+                 SPANEQ1015,
+                 SPANEQ1115,
+                 SPANEQ1215) ~ 
+              1 + Age + Gender01 + Occupation + Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) + mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) + mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) + mo(IPIP2015) + (1 |c| ID))
 
-# p$prior[c(1,5:32)] <- "normal(0,1)"
-# p$prior[2:3] <- "lkj(2)"
-# p$prior[c(33:37,89:94,146:150,202:206,258:263,315:319,371:374,426:430,482:486,538:542,594:599,651:655,707:711,763:767,819:823)] <- "normal(0,5)"
-# p$prior[c(38:40,95:97,151:153,207:209,264:266,320:322,375:377,431:433,487:489,543:545,600:602,656:658,712:714,768:770,824:826)] <- "weibull(2,1)"
-# p$prior[c(41:60,98:117,154:173,210:229,267:286,323:342,378:397,434:453,490:509,546:565,603:622,659:678,715:734,771:790,827:846)] <- "dirichlet(2)"
-# 
-# m_f <- brm(bf1, family = cumulative, data = d, prior = p)
+p <- get_prior(bf1, family = cumulative, data = d2)
+p$prior[1] <- "normal(0,1)"
+p$prior[2] <- "lkj(2)"
+p$prior[4] <- "normal(0,5)"
+
+m_spane_exit <- brm(bf1, family = cumulative, data = d2, prior = p, 
+                    threads = threading(2), refresh = 0)
+
+bf1 <- bf(mvbind(PWBQ117,
+                 PWBQ217,
+                 PWBQ317,
+                 PWBQ417,
+                 PWBQ517,
+                 PWBQ617,
+                 PWBQ717,
+                 PWBQ817) ~ 
+              1 + Age + Gender01 + Occupation + Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) + mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) + mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) + mo(IPIP2015) + (1 |c| ID))
+
+p <- get_prior(bf1, family = cumulative, data = d2)
+p$prior[1] <- "normal(0,1)"
+p$prior[2] <- "lkj(2)"
+p$prior[4] <- "normal(0,5)"
+
+m_pwb_exit <- brm(bf1, family = cumulative, data = d2, prior = p, 
+                    threads = threading(2), refresh = 0)
+
+bf1 <- bf(mvbind(PSTQ101,
+                 PSTQ201,
+                 PSTQ301,
+                 PSTQ401,
+                 PSTQ501,
+                 PSTQ601,
+                 PSTQ701,
+                 PSTQ801,
+                 PSTQ901,
+                 PSTQ1001,
+                 PSTQ1101,
+                 PSTQ1201,
+                 PSTQ1301,
+                 PSTQ1401,
+                 PSTQ1501,
+                 PSTQ1601,
+                 PSTQ1701,
+                 PSTQ1801,
+                 PSTQ1901,
+                 PSTQ2001,
+                 PSTQ2101,
+                 PSTQ2201) ~ 
+              1 + Age + Gender01 + Occupation + Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) + mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) + mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) + mo(IPIP2015) + (1 |c| ID))
+
+p <- get_prior(bf1, family = bernoulli, data = d2)
+p$prior[1] <- "normal(0,1)"
+p$prior[2] <- "lkj(2)"
+p$prior[4] <- "normal(0,5)"
+
+m_pst_exit <- brm(bf1, family = bernoulli, data = d2, prior = p, refresh = 0)
+
+bf1 <- bf(mvbind(#SEQ114, # binary outcome
+                 #SEQ214, # -"-
+                 SEQ314,
+                 #SEQ414,
+                 SEQ514,
+                 SEQ614,
+                 SEQ714,
+                 SEQ814,
+                 SEQ914,
+                 SEQ1014) ~ 
+              1 + Age + Gender01 + Occupation + Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) + mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) + mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) + mo(IPIP2015) + (1 |c| ID))
+
+p <- get_prior(bf1, family = cumulative, data = d2)
+p$prior[1] <- "normal(0,1)"
+p$prior[2] <- "lkj(2)"
+p$prior[4] <- "normal(0,5)"
+
+m_se_exit <- brm(bf1, family = cumulative, data = d2, prior = p, 
+                 threads = threading(2), refresh = 0)
+
+```
+
+```{r}
+# * Use IPIP as preds with weekly
+# and compare with our five GP models
+# Let's use GP to model over time, it'll be the same priors for all
+
+# Combine weekly with pers and IPIP data
+
+dw <- inner_join(weekly, pers, by = "ID")
+dw <- inner_join(dw, ipip, by = "ID")
+
+dw$Date_i <- as.numeric(dw$Date)
+dw <- dw[complete.cases(dw),] # 184 rows
+
+p <- get_prior(WQ1_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
+                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
+                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
+                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
+                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
+                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
+                 mo(IPIP2015) + (1 | ID), 
+               data = dw, 
+               family = cumulative())
+
+p$prior[1] <- "normal(0,1)"
+p$prior[c(28)] <- "normal(0,5)"
+p$prior[c(35)] <- "weibull(2,1)"
+p$prior[c(40:59)] <- "dirichlet(2)"
+
+WQ1gp_ipip <- brm(WQ1_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
+                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
+                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
+                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
+                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
+                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
+                 mo(IPIP2015) + (1 | ID), 
+                  data = dw,
+                  family = cumulative(), 
+                  prior = p, 
+                  control = list(adapt_delta=0.95), 
+                  threads = threading(2))
+
+WQ2gp_ipip <- brm(WQ2_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
+                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
+                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
+                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
+                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
+                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
+                 mo(IPIP2015) + (1 | ID), 
+                  data = dw,
+                  family = cumulative(), 
+                  prior = p, 
+                  control = list(adapt_delta=0.95), 
+                  threads = threading(2))
+
+WQ3gp_ipip <- brm(WQ3_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
+                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
+                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
+                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
+                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
+                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
+                 mo(IPIP2015) + (1 | ID), 
+                  data = dw,
+                  family = cumulative(), 
+                  prior = p, 
+                  control = list(adapt_delta=0.95), 
+                  threads = threading(2))
+
+WQ4gp_ipip <- brm(WQ4_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
+                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
+                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
+                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
+                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
+                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
+                 mo(IPIP2015) + (1 | ID), 
+                  data = dw,
+                  family = cumulative(), 
+                  prior = p, 
+                  control = list(adapt_delta=0.95), 
+                  threads = threading(2))
+
+WQ5gp_ipip <- brm(WQ5_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
+                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
+                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
+                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
+                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
+                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
+                 mo(IPIP2015) + (1 | ID), 
+                  data = dw,
+                  family = cumulative(), 
+                  prior = p, 
+                  control = list(adapt_delta=0.95), 
+                  threads = threading(2))
 ```
 
 # Inference

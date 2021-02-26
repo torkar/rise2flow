@@ -16,7 +16,7 @@ linkcolor: blue
 
 ```{r setup, include=FALSE}
 start.time <- Sys.time()
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
 ```
 
 ```{r setup2, echo=FALSE, message=FALSE}
@@ -25,6 +25,7 @@ library("plyr") # rm non-duplicates
 library("tidyverse") 
 library("bayesplot")
 library("ggplot2")
+library("ggthemes")
 library("patchwork") 
 library("openxlsx")
 library("data.table")
@@ -53,7 +54,7 @@ To summarize, the study was executed according to,
 
 1. An entry survey, at time $t_0$
 2. A weekly survey, at time $t_{{t_0 + 1}}, \ldots, t_{{t_0+13}}$
-3. An exit survey, at time $t_{0+13}$
+3. An exit survey, at time $t_{0+11}$
 
 The main question the study tries to answer is: **Is there a difference in the responses (i.e., higher/lower values on responses), across all or among some instruments, over time?**
 
@@ -248,7 +249,6 @@ d <- ddply(d, .(ID), function(x){
 table(d$t)
 ```
 
-
 We have $13$ individuals with entry and exit surveys completely filled out. Let's also add the `ipip` and `pers` datasets, and then use only individuals with complete data.
 
 ```{r, echo = TRUE}
@@ -260,114 +260,11 @@ After joining these two datasets we have `r length(table(d$ID))` subjects in the
 
 # Model designs
 
-## `weekly` data
+## Data-generation assumption
 
-We want to model the weekly instrument and how it varies over time $t$. In this case, $t$ will be modeled using a Gaussian Process and then each individual in the dataset will be modeled using a varying intercept.
-
-```{r}
-# Make sure ID is a factor
-weekly$ID <- as.factor(weekly$ID)
-
-# Also keep ordered categorical as integer Q1,..,Q5
-weekly$Q1 <- as.integer(weekly$WQ1_1_6)
-weekly$Q2 <- as.integer(weekly$WQ2_1_6)
-weekly$Q3 <- as.integer(weekly$WQ3_1_6)
-weekly$Q4 <- as.integer(weekly$WQ4_1_6)
-weekly$Q5 <- as.integer(weekly$WQ5_1_6)
-```
-
-```{r, cache=TRUE}
-# Let's use GP to model over time, it'll be the same priors for all
-weekly$Date_i <- as.numeric(weekly$Date)
-weekly <- weekly[complete.cases(weekly), ]
-
-p <- get_prior(WQ1_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
-               family = cumulative())
-p$prior[1] <- "normal(0,5)"
-p$prior[c(8,11)] <- "weibull(2,1)"
-
-WQ1gp <- brm(WQ1_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
-             family = cumulative(), prior = p, control = list(adapt_delta=0.95))
-
-WQ2gp <- brm(WQ2_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
-             family = cumulative(), prior = p, control = list(adapt_delta=0.95))
-
-WQ3gp <- brm(WQ3_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
-             family = cumulative(), prior = p, control = list(adapt_delta=0.95))
-
-WQ4gp <- brm(WQ4_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
-             family = cumulative(), prior = p, control = list(adapt_delta=0.96))
-
-WQ5gp <- brm(WQ5_1_6 ~ gp(Date_i) + (1 | ID), data = weekly,
-             family = cumulative(), prior = p, control = list(adapt_delta=0.95))
-```
-
-```{r}
-# Set the same y axis on all plots
-p1 <- plot(conditional_effects(WQ1gp), plot = FALSE)[[1]] + 
-  scale_y_continuous(name = "Q1", 
-                     limits = c(1, 6), 
-                     breaks = seq(1:6))
-
-p2 <- plot(conditional_effects(WQ2gp), plot = FALSE)[[1]] + 
-  scale_y_continuous(name = "Q2", 
-                     limits = c(1, 6), 
-                     breaks = seq(1:6))
-
-p3 <- plot(conditional_effects(WQ3gp), plot = FALSE)[[1]] + 
-  scale_y_continuous(name = "Q3", 
-                     limits = c(1, 6), 
-                     breaks = seq(1:6))
-
-p4 <- plot(conditional_effects(WQ4gp), plot = FALSE)[[1]] + 
-  scale_y_continuous(name = "Q4", 
-                     limits = c(1, 6), 
-                     breaks = seq(1:6))
-
-p5 <- plot(conditional_effects(WQ5gp), plot = FALSE)[[1]] + 
-  scale_y_continuous(name = "Q1", 
-                     limits = c(1, 6), 
-                     breaks = seq(1:6))
-
-p1 + p2 + p3 + p4 + p5 + 
-  plot_layout(ncol=2) + 
-  plot_annotation(title = 'Weekly instrument')
-```
-
-In short, very little happening over time according to the weekly instrument.
-
-## `daily` data
-
-Let's redo this bu for the `daily` dataset.
-
-```{r, cache = TRUE}
-daily$ID <- as.factor(daily$ID)
-daily$date_s <- as.numeric(daily$date)
-
-p <- get_prior(resp ~ 1 + gp(date_s) + (1| ID), data = daily, family = cumulative)
-p$prior[1] <- "normal(0,5)"
-p$prior[c(13,16)] <- "weibull(2,1)"
-
-m_daily <- brm(resp ~ 1 + gp(date_s) + (1| ID), 
-               data = daily, 
-               family = cumulative,
-               prior = p,
-               control = list(adapt_delta=0.95), 
-               iter = 8e3, threads = threading(2))
-```
-
-Sampled good but we needed to run the chains longer to find the typical set.
-
-```{r}
-conditional_effects(m_daily)
-```
-
-Weak positive trend, but nothing significant really.
-
-## Data-generative distribution
 Next, in order to design an appropriate model, one of the things we need to make assumptions about is the underlying data-generative model, i.e., what model generated the type of data we have at our disposal. In short, there are four candidates: Cumulative, Continuation ratio, Stopping ratio, and Adjacent category. Above we opted for a default `Cumulative`. Let's instead use LOO to create identical models and then use the same data for all models to compare them from an information theoretical perspective.
 
-```{r likelihoods, echo = TRUE, warning=FALSE, cache = TRUE}
+```{r likelihoods, echo=TRUE, warning=FALSE, message=FALSE}
 bf1 <- bf(mvbind(MAASQ116,
                  MAASQ216,
                  MAASQ316,
@@ -421,13 +318,276 @@ loo_compare(m0, mcr, msr, mac)
 
 Evidently, since $\Delta$SE is fairly large, in comparison to the relative difference in expected log pointwise predictive density ($\Delta$elpd), we can safely assume that there's no significant difference between the likelihoods and, thus, opt for the standard approach, i.e., the Cumulative distribution, in this case represented by $\mathcal{M}_0$.
 
-## Sampling
+## `weekly` data {#weekly}
 
-We want a model that uses personal data (e.g., age) as predictors. The idea is to later see if any of the predictors have predictive capacity for our six different survey instruments. Further down below we will also see if we can combine this with the `IPIP` data.
+### Prior and posterior predictive checks
 
-First, design a model with predictors we from `personal` data and compare with our null model ($\mathcal{M}_0$), together with our indicator $t$ for time, and a varying intercept `ID` that varies depending on subject.
+We want to model the weekly instrument and how it varies over time $t$. In this case, $t$ will be modeled using a Gaussian Process and then each individual in the dataset will be modeled using a varying intercept.
 
-```{r predictors-pers, echo=TRUE, warnings=FALSE, cache = TRUE}
+```{r, warning=FALSE, message=FALSE}
+weekly <- left_join(weekly, pers, by = "ID")
+
+# make sure ID is a factor
+weekly$ID <- as.factor(weekly$ID)
+
+# Need to format data so that each person's measurements goes 
+# from 1 ... n, according to order, then we use those numbers as temporal var
+weekly <- weekly[order(weekly$ID),]
+weekly$Seq <- sequence(tabulate(weekly$ID))
+```
+
+```{r, warning=FALSE, message=FALSE}
+
+# Pick first question. We could model this as multivariate but it won't give us 
+# anything extra
+p <- get_prior(WQ1_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | ID), 
+               data = weekly,
+               family = cumulative())
+
+p$prior[1] <- "normal(0,2)"
+p$prior[8] <- "normal(0,5)"
+p$prior[13] <- ""
+p$prior[14] <- "inv_gamma(1.6, 0.1)"
+p$prior[15] <- "weibull(2,1)"
+
+WQ1gp <- brm(WQ1_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | ID), 
+             data = weekly,
+             family = cumulative(), 
+             prior = p, 
+             sample_prior = "only",
+             silent = TRUE, 
+             refresh = 0)
+
+pp_check(WQ1gp, type="bars", nsamples = 100)
+```
+
+The priors are fairly uniform on the outcome space. Let's sample with data now.
+
+```{r weekly-1, warning=FALSE, message=FALSE}
+WQ1gp <- brm(WQ1_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | ID), 
+             data = weekly,
+             family = cumulative(), 
+             prior = p, 
+             control = list(adapt_delta = 0.999, max_treedepth = 13),
+             silent = TRUE, 
+             refresh = 0)
+```
+
+```{r weekly-2, warning=FALSE, message=FALSE}
+WQ2gp <- brm(WQ2_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | ID), 
+             data = weekly,
+             family = cumulative(), 
+             prior = p, 
+             control = list(adapt_delta = 0.99),
+             silent = TRUE, 
+             refresh = 0)
+```
+
+```{r weekly-3, warning=FALSE, message=FALSE}
+WQ3gp <- brm(WQ3_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | ID), 
+             data = weekly,
+             family = cumulative(), 
+             prior = p, 
+             control = list(adapt_delta = 0.999),
+             silent = TRUE, 
+             refresh = 0)
+```
+
+```{r weekly-4, warning=FALSE, message=FALSE}
+WQ4gp <- brm(WQ4_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | ID), 
+             data = weekly,
+             family = cumulative(), 
+             prior = p, 
+             control = list(adapt_delta = 0.999),
+             silent = TRUE, 
+             refresh = 0)
+```
+
+```{r weekly-5, warning=FALSE, message=FALSE}
+WQ5gp <- brm(WQ5_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | ID),
+             data = weekly,
+             family = cumulative(), 
+             prior = p, 
+             control = list(adapt_delta = 0.95),
+             silent = TRUE, 
+             refresh = 0)
+```
+
+### Diagnostics
+
+```{r}
+rstan::check_hmc_diagnostics(m_daily$fit)
+
+# check rhat and ESS
+if(max(rhat(eval(m_daily)), na.rm=T) >= 1.01) {
+  print("Warning: Rhat >=1.01")
+} else {
+  print("All Rhat <1.01")
+}
+
+if(min(neff_ratio(eval(m_daily)), na.rm=T) <= 0.2) {
+  print("Warning: ESS <=0.2")
+} else {
+  print("All ESS >0.2")
+}
+```
+
+### Parameter estimates
+
+```{r, warning=FALSE, message=FALSE}
+# Set the same y axis on all plots
+
+p1 <- plot(conditional_effects(WQ1gp), plot = FALSE)[[5]] + 
+  ylim(1,5) + ggtitle("Q1") + ylab("") + xlab("") +
+  theme_tufte() +
+  theme(
+    axis.text.x = element_blank(), 
+    axis.ticks.x = element_blank()
+  )
+
+p2 <- plot(conditional_effects(WQ2gp), plot = FALSE)[[5]] + 
+  ylim(1,5) + ggtitle("Q2") + ylab("") + xlab("") +
+  theme_tufte() +
+  theme(
+    axis.text.x = element_blank(), 
+    axis.ticks.x = element_blank(),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank()
+  )
+
+p3 <- plot(conditional_effects(WQ3gp), plot = FALSE)[[5]]  + 
+  ylim(1,5) + ggtitle("Q3") + ylab("") + xlab("") +
+  theme_tufte() +
+  theme(
+    axis.text.x = element_blank(), 
+    axis.ticks.x = element_blank()
+  )
+
+p4 <- plot(conditional_effects(WQ4gp), plot = FALSE)[[5]] + 
+  ylim(1,5) + ggtitle("Q4") + ylab("") + xlab("") +
+  scale_x_continuous(name = "Week",
+                     limits = c(1,12),
+                     breaks = seq(from = 1, to = 12), 
+                     labels = c("0", "1", "2", "3", "4",
+                                "5", "6", "7", "8", "9",
+                                "10", "11")) +
+  theme_tufte() +
+  theme(
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank()
+  )
+
+p5 <- plot(conditional_effects(WQ5gp), plot = FALSE)[[5]] + 
+  ylim(1,5) + ggtitle("Q5") + ylab("") + xlab("") +
+  scale_x_continuous(name = "Week",
+                     limits = c(1,12),
+                     breaks = seq(from = 1, to = 12), 
+                     labels = c("0", "1", "2", "3", "4",
+                                "5", "6", "7", "8", "9",
+                                "10", "11")) + theme_tufte()
+
+p1 + p2 + p3 + p4 + p5 + 
+  plot_layout(ncol=2) + 
+  plot_annotation(title = 'Weekly instrument')
+```
+
+In short, very little happening over time according to the weekly instrument.
+
+## `daily` data {#daily}
+
+### Prior and posterior predictive checks
+
+Let's redo this but for the `daily` dataset.
+
+```{r daily-pri, echo=TRUE, warning=FALSE, message=FALSE}
+daily <- left_join(daily, pers, by = "ID")
+daily$ID <- as.factor(daily$ID)
+daily$date_s <- as.numeric(daily$date)
+daily$Living14 <- as.numeric(daily$Living14)
+daily <- daily[order(weekly$ID),]
+daily$Seq <- sequence(tabulate(daily$ID))
+
+p <- get_prior(resp ~ 1 + gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | ID), 
+               data = daily, family = cumulative)
+p$prior[1] <- "normal(0,2)"
+p$prior[6] <- "normal(0,5)"
+p$prior[17] <- "inv_gamma(1.6, 0.1)"
+p$prior[18] <- "weibull(2,1)"
+
+m_daily <- brm(resp ~ 1 + gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | ID), 
+               data = daily, 
+               family = cumulative,
+               prior = p,
+               sample_prior = "only",
+               silent = TRUE, 
+               refresh = 0)#, threads = threading(4))
+
+pp_check(m_daily, type = "bars", nsamples = 100)
+```
+
+```{r daily, echo=TRUE, warning=FALSE, message=FALSE}
+m_daily <- brm(resp ~ 1 + gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | ID), 
+               data = daily, 
+               family = cumulative,
+               prior = p,
+               control = list(adapt_delta=0.99),
+               silent = TRUE, 
+               refresh = 0)
+```
+
+```{r}
+pp_check(m_daily, type = "bars", nsamples = 100)
+```
+
+### Diagnostics
+```{r}
+rstan::check_hmc_diagnostics(m_daily$fit)
+
+# check rhat and ESS
+if(max(rhat(eval(m_daily)), na.rm=T) >= 1.01) {
+  print("Warning: Rhat >=1.01")
+} else {
+  print("All Rhat <1.01")
+}
+
+if(min(neff_ratio(eval(m_daily)), na.rm=T) <= 0.2) {
+  print("Warning: ESS <=0.2")
+} else {
+  print("All ESS >0.2")
+}
+```
+
+### Parameter estimates
+Let's plot an interesting effect, which albeit is not significant has a tendency that's interesting.
+
+```{r, warning=FALSE, message=FALSE}
+plot(conditional_effects(m_daily), plot = FALSE)[[2]] +
+  xlim(1,2.5) +
+  scale_x_continuous(name=NULL, 
+                     breaks = c(1,2), 
+                     label = c("Man/\n transman","Woman/\n transwoman"), 
+                     expand = c(0.08, 0)) +
+  scale_y_continuous(name=NULL, breaks = c(6,7)) + 
+  theme_tufte()
+```
+
+Next, look at the trend.
+
+```{r, warning=FALSE, message=FALSE}
+plot(conditional_effects(m_daily), plot = FALSE)[[5]] +
+  xlab("Day") + ylab("") +
+  theme_tufte()
+```
+
+One things clear, the uncertainty at the end makes an inferences useless.
+
+## Multivariate models with temporal variable
+
+We want a model that uses personal data (e.g., age) as predictors. The idea is to later see if any of the predictors have predictive capacity for our six different survey instruments. 
+
+First, design a model with predictors from `personal` data and compare with our null model ($\mathcal{M}_0$), together with our indicator $t$ for time, and a varying intercept `ID` that varies depending on subject.
+
+```{r predictors-pers, echo=TRUE, warning=FALSE, message=FALSE}
 bf1 <- bf(mvbind(MAASQ116,
                  MAASQ216,
                  MAASQ316,
@@ -443,15 +603,14 @@ bf1 <- bf(mvbind(MAASQ116,
                  MAASQ1316,
                  MAASQ1416,
                  MAASQ1516) ~ 
-            1 + Age + Gender01 + Occupation + Living14 + t + (1|ID))
+            1 + Age + Gender01 + Occupation + Living14 + t + (1|c|ID))
 
 m_pers <- brm(bf1,
     family = cumulative,
     data = d,
     silent = TRUE,
-    refresh = 0,
-    threads = threading(2)
-    )
+    refresh = 0)#,
+    #threads = threading(4))
 
 m_pers <- add_criterion(m_pers, criterion = "loo")
 
@@ -459,15 +618,17 @@ m_pers <- add_criterion(m_pers, criterion = "loo")
 (l <- loo_compare(m0, m_pers))
 ```
 
-Calculating the credible interval (95%) we can see that it doesn't cross zero, i.e., adding these predictors makes the relative out of sample prediction capability jump up even though we add five population-level predictors and one group-level predictor.
+Calculating the credible interval ($z_{95\%}=1.96$) we can see that it doesn't cross zero, i.e., adding these predictors makes the relative out of sample prediction capability jump up even though we add seven population-level predictors and one group-level predictor (`Living14` contains three parameters to estimate).
 
 ```{r ci-loo, echo=TRUE, warnings=FALSE}
 l[2,1] + c(-1,1) * 1.96 * l[2,2]
 ```
 
+### Prior and posterior predictive checks
+
 Let's now sample all models with the same predictors we used above (visual prior and posterior predictive checks were done for each model).
 
-```{r m-maas, echo=TRUE, warning=FALSE, cache = TRUE}
+```{r m-maas, echo=TRUE, warning=FALSE, message=FALSE}
 ################################################################################
 #
 # MAAS
@@ -505,16 +666,15 @@ m_maas <- brm(bf1,
     prior = p,
     #sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
-    refresh = 0,
-    threads = threading(2)
-    )
+    refresh = 0)#,
+    #threads = threading(4))
 
 # use the below to do prior and posterior predictive checks
 # change resp to the response variable you want to check 
 # pp_check(m_maas, resp = "MAASQ116", type = "bars, nsamples = 250) 
 ```
 
-```{r m-spane, echo=TRUE, warning=FALSE, cache = TRUE}
+```{r m-spane, echo=TRUE, warning=FALSE, message=FALSE}
 ################################################################################
 #
 # SPANE
@@ -547,15 +707,15 @@ m_spane <- brm(bf1,
     prior = p,
     # sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
-    refresh = 0,
-    threads = threading(2)
-    )
+    refresh = 0)#,
+    #threads = threading(4))
 
 # use the below to do prior and posterior predictive checks
 # change resp to the response variable you want to check 
 # pp_check(m_spane, resp = "SPANEQ115", type = "bars", nsamples = 250) 
 ```
-```{r m-pwb, echo=TRUE, warning=FALSE, cache = TRUE}
+
+```{r m-pwb, echo=TRUE, warning=FALSE, message=FALSE}
 ################################################################################
 #
 # PWB
@@ -584,14 +744,13 @@ m_pwb <- brm(bf1,
     prior = p,
     # sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
-    refresh = 0,
-    threads = threading(2)
-    )
+    refresh = 0)#,
+    #threads = threading(4))
 
 # pp_check(m_pwb, resp = "PWBQ117", type = "bars", nsamples = 250) 
 ```
 
-```{r m-pst, echo=TRUE, warning=FALSE, cache = TRUE}
+```{r m-pst, echo=TRUE, warning=FALSE, message=FALSE}
 ################################################################################
 #
 # PST
@@ -639,7 +798,8 @@ m_pst <- brm(bf1,
 
 # pp_check(m_pst, resp = "PSTQ101", type = "bars", nsamples = 250) 
 ```
-```{r m-se, echo=TRUE, warning=FALSE, cache = TRUE}
+
+```{r m-se, echo=TRUE, warning=FALSE, message=FALSE}
 ################################################################################
 #
 # SE - two models (Cumulative and Bernoulli), both multivariate 
@@ -670,9 +830,8 @@ m_se <- brm(bf1,
     prior = p,
     # sample_prior = "only",
     silent = TRUE,
-    refresh = 0,
-    threads = threading(2)
-    )
+    refresh = 0)#,
+    #threads = threading(4))
 
 # pp_check(m_seq, resp = "SEQ314", type = "bars", nsamples = 250) 
 
@@ -699,7 +858,7 @@ m_se2 <- brm(bf1,
 # pp_check(m_seq2, resp = "SEQ114", type = "bars", nsamples = 250) 
 ```
 
-```{r m-pph, echo=TRUE, warning=FALSE, cache = TRUE}
+```{r m-pph, echo=TRUE, warning=FALSE, message=FALSE}
 ################################################################################
 #
 # PPHQ
@@ -719,7 +878,7 @@ bf1 <- bf(mvbind(PPHQ115,
                  PPRQ3110,
                  PPOQ117
                  ) ~ 
-            1 + Age + Gender01 + Occupation + Living14 + t + (1 | ID))
+            1 + Age + Gender01 + Occupation + Living14 + t + (1 |c| ID))
 
 p <- get_prior(bf1, data=d, family=cumulative) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
@@ -734,7 +893,7 @@ m_pph <- brm(bf1,
     # sample_prior = "only",
     silent = TRUE,
     refresh = 0,
-    threads = threading(2)
+    # threads = threading(4)
     )
 
 # pp_check(m_pphq, resp = "PPHQ115", type = "bars", nsamples = 250) 
@@ -742,11 +901,11 @@ m_pph <- brm(bf1,
 
 So we have now sampled seven models. For each instrument we have one multivariate model ($>1$ outcome), where we also estimate the correlation between the outcome given the subject's ID. 
 
-Most of the models are using, as we've already discussed, the Cumulative family. However, in a few cases we use the Bernoulli family. First, we use it for outcomes that were binary (i.e., Yes/No outcomes). Second, we use it for two questions in the SE instrument ($\mathcal{M}_{\text{SE2}}$), which only had empirical outcomes on two levels. 
+Most of the models are using, as we've already discussed, the Cumulative family. However, in a few cases we use the Bernoulli family. First, we use it for outcomes that were binary (i.e., Yes/No outcomes). Second, we use it for two questions in the SE instrument ($\mathcal{M}_{\text{SE}2}$), which only had empirical outcomes on two levels. 
 
 Before we put any trust in these models we need to check a number of diagnostics.
 
-## Diagnostics
+### Diagnostics
 
 First, we check general HMC diagnostics. Second, we check that $\widehat{R} \leq 1.01$ and that the effective sample size (ESS) is $\geq 0.2$.
 
@@ -769,235 +928,16 @@ for(m in models) {
 
 Hamiltonian Monte Carlo diagnostics indicate all is well, $\widehat{R} \leq 1.01$, and $\text{ESS} \geq 0.2$. One can also check traceplots for all models (i.e., using `plot(model)`).
 
-## Combining IPIP with weekly, daily, and entry/exit data
+### Parameter estimates
 
-Let's add several predictors to our model and see what happens. Our hypothesis is that `IPIP` covariates should have a stable predictive capability.
+First, let's summarize what we have so far:
 
-```{r mFull, echo=TRUE, warning=FALSE, cache = TRUE}
-# incl. IPIP as preds for exit instruments,
-#   * MAAS
-#   * SPANE
-#   * PWB
-#   * PST
-#   * SE
+1. Daily trends modeled with Gaussian Processes (results in Sect.~\@ref(daily)).
+2. Weekly trends modeled with Gaussian Processes (results in Sect.~\@ref(weekly)).
+3. Seven multivariate models with temporal variable to analyze entry/exit. Additionally, we have an eight model for analyzing two questions (1--2) in the SE instrument (using a Bernoulli likelihood).
 
-# Create new df with exit and pers+IPIP data. Use d but keep only rows where t=1 
-# (i.e., exit survey)
-d2 <- d[d$t == 1, ]
+We can now investigate which, if any, parameters are significant on the 95%-level for the third item. Any parameters that are significant could warrant further analysis.
 
-bf1 <- bf(mvbind(MAASQ116,
-                 MAASQ216,
-                 MAASQ316,
-                 MAASQ416,
-                 MAASQ516,
-                 MAASQ616,
-                 MAASQ716,
-                 MAASQ816,
-                 MAASQ916,
-                 MAASQ1016,
-                 MAASQ1116,
-                 MAASQ1216,
-                 MAASQ1316,
-                 MAASQ1416,
-                 MAASQ1516) ~ 
-              1 + Age + Gender01 + Occupation + Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) + mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) + mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) + mo(IPIP2015) + (1 |c| ID))
-
-p <- get_prior(bf1, family = cumulative, data = d2)
-p$prior[1] <- "normal(0,1)"
-p$prior[2] <- "lkj(2)"
-p$prior[4] <- "normal(0,5)"
-
-m_maas_exit <- brm(bf1, family = cumulative, data = d2, prior = p, 
-                    threads = threading(2), refresh = 0)
-
-bf1 <- bf(mvbind(SPANEQ115,
-                 SPANEQ215,
-                 SPANEQ315,
-                 SPANEQ415,
-                 SPANEQ515,
-                 SPANEQ615,
-                 SPANEQ715,
-                 SPANEQ815,
-                 SPANEQ915,
-                 SPANEQ1015,
-                 SPANEQ1115,
-                 SPANEQ1215) ~ 
-              1 + Age + Gender01 + Occupation + Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) + mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) + mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) + mo(IPIP2015) + (1 |c| ID))
-
-p <- get_prior(bf1, family = cumulative, data = d2)
-p$prior[1] <- "normal(0,1)"
-p$prior[2] <- "lkj(2)"
-p$prior[4] <- "normal(0,5)"
-
-m_spane_exit <- brm(bf1, family = cumulative, data = d2, prior = p, 
-                    threads = threading(2), refresh = 0)
-
-bf1 <- bf(mvbind(PWBQ117,
-                 PWBQ217,
-                 PWBQ317,
-                 PWBQ417,
-                 PWBQ517,
-                 PWBQ617,
-                 PWBQ717,
-                 PWBQ817) ~ 
-              1 + Age + Gender01 + Occupation + Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) + mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) + mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) + mo(IPIP2015) + (1 |c| ID))
-
-p <- get_prior(bf1, family = cumulative, data = d2)
-p$prior[1] <- "normal(0,1)"
-p$prior[2] <- "lkj(2)"
-p$prior[4] <- "normal(0,5)"
-
-m_pwb_exit <- brm(bf1, family = cumulative, data = d2, prior = p, 
-                    threads = threading(2), refresh = 0)
-
-bf1 <- bf(mvbind(PSTQ101,
-                 PSTQ201,
-                 PSTQ301,
-                 PSTQ401,
-                 PSTQ501,
-                 PSTQ601,
-                 PSTQ701,
-                 PSTQ801,
-                 PSTQ901,
-                 PSTQ1001,
-                 PSTQ1101,
-                 PSTQ1201,
-                 PSTQ1301,
-                 PSTQ1401,
-                 PSTQ1501,
-                 PSTQ1601,
-                 PSTQ1701,
-                 PSTQ1801,
-                 PSTQ1901,
-                 PSTQ2001,
-                 PSTQ2101,
-                 PSTQ2201) ~ 
-              1 + Age + Gender01 + Occupation + Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) + mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) + mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) + mo(IPIP2015) + (1 |c| ID))
-
-p <- get_prior(bf1, family = bernoulli, data = d2)
-p$prior[1] <- "normal(0,1)"
-p$prior[2] <- "lkj(2)"
-p$prior[4] <- "normal(0,5)"
-
-m_pst_exit <- brm(bf1, family = bernoulli, data = d2, prior = p, refresh = 0)
-
-bf1 <- bf(mvbind(#SEQ114, # binary outcome
-                 #SEQ214, # -"-
-                 SEQ314,
-                 #SEQ414,
-                 SEQ514,
-                 SEQ614,
-                 SEQ714,
-                 SEQ814,
-                 SEQ914,
-                 SEQ1014) ~ 
-              1 + Age + Gender01 + Occupation + Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) + mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) + mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) + mo(IPIP2015) + (1 |c| ID))
-
-p <- get_prior(bf1, family = cumulative, data = d2)
-p$prior[1] <- "normal(0,1)"
-p$prior[2] <- "lkj(2)"
-p$prior[4] <- "normal(0,5)"
-
-m_se_exit <- brm(bf1, family = cumulative, data = d2, prior = p, 
-                 threads = threading(2), refresh = 0)
-
-```
-
-```{r}
-# * Use IPIP as preds with weekly
-# and compare with our five GP models
-# Let's use GP to model over time, it'll be the same priors for all
-
-# Combine weekly with pers and IPIP data
-
-dw <- inner_join(weekly, pers, by = "ID")
-dw <- inner_join(dw, ipip, by = "ID")
-
-dw$Date_i <- as.numeric(dw$Date)
-dw <- dw[complete.cases(dw),] # 184 rows
-
-p <- get_prior(WQ1_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
-                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
-                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
-                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
-                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
-                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
-                 mo(IPIP2015) + (1 | ID), 
-               data = dw, 
-               family = cumulative())
-
-p$prior[1] <- "normal(0,1)"
-p$prior[c(28)] <- "normal(0,5)"
-p$prior[c(35)] <- "weibull(2,1)"
-p$prior[c(40:59)] <- "dirichlet(2)"
-
-WQ1gp_ipip <- brm(WQ1_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
-                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
-                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
-                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
-                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
-                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
-                 mo(IPIP2015) + (1 | ID), 
-                  data = dw,
-                  family = cumulative(), 
-                  prior = p, 
-                  control = list(adapt_delta=0.95), 
-                  threads = threading(2))
-
-WQ2gp_ipip <- brm(WQ2_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
-                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
-                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
-                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
-                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
-                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
-                 mo(IPIP2015) + (1 | ID), 
-                  data = dw,
-                  family = cumulative(), 
-                  prior = p, 
-                  control = list(adapt_delta=0.95), 
-                  threads = threading(2))
-
-WQ3gp_ipip <- brm(WQ3_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
-                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
-                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
-                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
-                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
-                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
-                 mo(IPIP2015) + (1 | ID), 
-                  data = dw,
-                  family = cumulative(), 
-                  prior = p, 
-                  control = list(adapt_delta=0.95), 
-                  threads = threading(2))
-
-WQ4gp_ipip <- brm(WQ4_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
-                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
-                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
-                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
-                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
-                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
-                 mo(IPIP2015) + (1 | ID), 
-                  data = dw,
-                  family = cumulative(), 
-                  prior = p, 
-                  control = list(adapt_delta=0.95), 
-                  threads = threading(2))
-
-WQ5gp_ipip <- brm(WQ5_1_6 ~ gp(Date_i) +  1 + Age + Gender01 + Occupation + 
-                 Living14 + mo(IPIP115) + mo(IPIP215) + mo(IPIP315) + 
-                 mo(IPIP415) + mo(IPIP515) + mo(IPIP615) + mo(IPIP715) + 
-                 mo(IPIP815) + mo(IPIP915) + mo(IPIP1015) + mo(IPIP1115) +
-                 mo(IPIP1215) + mo(IPIP1315) + mo(IPIP1415) + mo(IPIP1515) +
-                 mo(IPIP1615) + mo(IPIP1715) + mo(IPIP1815) + mo(IPIP1915) +
-                 mo(IPIP2015) + (1 | ID), 
-                  data = dw,
-                  family = cumulative(), 
-                  prior = p, 
-                  control = list(adapt_delta=0.95), 
-                  threads = threading(2))
-```
-
-# Inference
 
 # Computational environment
 
@@ -1009,7 +949,8 @@ Check how much time it takes to compile this document.
 
 ```{r}
 end.time <- Sys.time()
-round((end.time - start.time), 3)
+round((end.time - start.time), 1)
 ```
 
 # References
+

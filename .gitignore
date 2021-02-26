@@ -2,6 +2,7 @@
 .DS_Store
 
 docs/rsconnect/
+docs/index_files/
 # History files
 .Rhistory
 .Rapp.history

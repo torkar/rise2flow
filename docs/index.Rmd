@@ -1,5 +1,6 @@
 ---
 title: "Rise 2 Flow"
+subtitle: "A replication package"
 author: "B. Penzenstadler & R. Torkar"
 date: "First version: 2020-12-26. Current version: `r Sys.time()`."
 output: 
@@ -24,6 +25,7 @@ library("brms")
 library("plyr") # rm non-duplicates
 library("tidyverse") 
 library("bayesplot")
+library("latex2exp")
 library("ggplot2")
 library("ggthemes")
 library("patchwork") 
@@ -41,7 +43,7 @@ For entry and exit sessions six instruments were used:
 
 * Mindful attention awareness scale (MAAS).^[https://ppc.sas.upenn.edu/resources/questionnaires-researchers/mindful-attention-awareness-scale]
 * Scale of positive and negative experience (SPANE).^[https://www.midss.org/content/scale-positive-and-negative-experience-spane-0]
-* Personal wellbeing index (PWB).^[http://www.acqol.com.au/instruments]
+* Personal well-being index (PWB).^[http://www.acqol.com.au/instruments]
 * Positive thinking (PST).^[https://www.psytoolkit.org/survey-library/pts.html]
 * Self efficacy (SE).^[https://sparqtools.org/mobility-measure/new-general-self-efficacy-scale/]
 * Perceived productivity (PP).^[https://www.hcp.med.harvard.edu/hpq/info.php]
@@ -52,9 +54,10 @@ For the weekly sessions the WHO-5 well-being index was used (WHO-5).^[https://ww
 
 To summarize, the study was executed according to,
 
-1. An entry survey, at time $t_0$
+1. An entry survey, at time $t_0$ (MAAS, etc.)
 2. A weekly survey, at time $t_{{t_0 + 1}}, \ldots, t_{{t_0+13}}$
-3. An exit survey, at time $t_{0+11}$
+3. Daily surveys
+3. An exit survey, at time $t_{0+11}$ (MAAS, etc. and IPIP)
 
 The main question the study tries to answer is: **Is there a difference in the responses (i.e., higher/lower values on responses), across all or among some instruments, over time?**
 
@@ -65,12 +68,12 @@ In order to answer that question we can first of all compare outcomes of $t_0$ a
 First we load all five datasets. For each dataset, make sure we set correct variable types.
 
 ```{r load, echo=TRUE}
-entry <- read.xlsx(here("data/R2F Quant Comp Data Entry.xlsx"))
-exit <- read.xlsx(here("data/R2F Quant Comp Data Exit.xlsx"))
+entry <- read.xlsx(here("data/R2F Quant Comp Data Entry.xlsx")) # all instruments
+exit <- read.xlsx(here("data/R2F Quant Comp Data Exit.xlsx")) # same here
 weekly <- read.xlsx(here("data/R2F Quant Weekly.xlsx"), detectDates = T)
 ipip <- read.xlsx(here("data/R2F IPIP.xlsx"))
 pers <- read.xlsx(here("data/R2F Pers Data.xlsx")) # personal data
-daily <- read.xlsx(here("data/R2F Daily.xlsx"), detectDates = T) # yes, also daily data
+daily <- read.xlsx(here("data/R2F Daily.xlsx"), detectDates = T)
 ```
 
 ## `entry` and `exit` datasets
@@ -212,7 +215,7 @@ pers <- pers[complete.cases(pers), ]
 
 Remember, the main question the study tries to answer is: **Is there a difference in the responses (i.e., higher/lower values on responses), across all or among some instruments, over time?** This means that for now we can discard of the weekly data and instead focus on the entry and exit instruments, together with personal data (i.e., age, gender, occupation, and living conditions).
 
-In order for us to conduct inferences along this line of thinking, we will make use of dummy variable regression estimators (DVRE), which is numerically identical to deviation score estimators. The DVRE approach dummy encodes our time variable $t$ and sets an index $0/1$, where $t_0 = 0$ and $t_1 = 1$. In short, each subject (`ID`) will have two rows where one row is the entry instrument $t = 0$, and one row has the exit instrument $t = 1$. We'll create six datasets which are divided according to each instrument we use as outcome (MAAS, SPANE, PWB, PST, SE, and PP), and then see if our predictors are useful for predicting the outcome (i.e., is there a significant difference in the $\beta$ estimators) and then also investigate if the outcome at $t_0$ equals $t_1$ (and if they aren't the same, how much do they differ?)
+In order for us to conduct inferences along this line of thinking, we will make use of dummy variable regression estimators (DVRE), which is numerically identical to deviation score estimators. The DVRE approach dummy encodes our time variable $t$ and sets an index $0/1$, where $t_0 = 0$ and $t_1 = 1$. In short, each subject (`ID`) will have two rows where one row is the entry instrument $t = 0$, and one row has the exit instrument $t = 1$. We'll then see if our predictors are useful for predicting the outcome (i.e., is there a significant difference in the $\beta$ estimators) and then also investigate if the outcome at $t_0$ equals $t_1$ (and if they aren't the same, how much do they differ?)
 
 ```{r split_join, echo=TRUE}
 # create new column t, and set to 0 or 1
@@ -236,7 +239,8 @@ colnames(pers) <- gsub('-', '', colnames(pers))
 # add rows of entry and exit
 d <- rbind(entry, exit)
 
-# keep only rows if they show up twice, so we have a within-measurement of each # individual at time t_0 and t_1
+# keep only rows if they show up twice, so we have a within-measurement of each 
+# individual at time t_0 and t_1
 d <- ddply(d, .(ID), function(x){
     if(nrow(x)==1){
         return(NULL)
@@ -256,11 +260,11 @@ d <- inner_join(d, pers, by = "ID")
 d <- inner_join(d, ipip, by = "ID")
 ```
 
-After joining these two datasets we have `r length(table(d$ID))` subjects in the dataset.
+After joining these two datasets we have `r length(table(d$ID))` subjects in the dataset and the total sample size is $n=$ `r nrow(d)`.
 
 # Model designs
 
-## Data-generation assumption
+## Assumptions concerning the data-generation process
 
 Next, in order to design an appropriate model, one of the things we need to make assumptions about is the underlying data-generative model, i.e., what model generated the type of data we have at our disposal. In short, there are four candidates: Cumulative, Continuation ratio, Stopping ratio, and Adjacent category. Above we opted for a default `Cumulative`. Let's instead use LOO to create identical models and then use the same data for all models to compare them from an information theoretical perspective.
 
@@ -368,7 +372,7 @@ WQ1gp <- brm(WQ1_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | I
              data = weekly,
              family = cumulative(), 
              prior = p, 
-             control = list(adapt_delta = 0.999, max_treedepth = 13),
+             control = list(adapt_delta = 0.9999, max_treedepth = 13),
              silent = TRUE, 
              refresh = 0)
 ```
@@ -378,7 +382,7 @@ WQ2gp <- brm(WQ2_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | I
              data = weekly,
              family = cumulative(), 
              prior = p, 
-             control = list(adapt_delta = 0.99),
+             control = list(adapt_delta = 0.99, max_treedepth = 12),
              silent = TRUE, 
              refresh = 0)
 ```
@@ -388,7 +392,7 @@ WQ3gp <- brm(WQ3_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | I
              data = weekly,
              family = cumulative(), 
              prior = p, 
-             control = list(adapt_delta = 0.999),
+             control = list(adapt_delta = 0.99),
              silent = TRUE, 
              refresh = 0)
 ```
@@ -408,7 +412,7 @@ WQ5gp <- brm(WQ5_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | I
              data = weekly,
              family = cumulative(), 
              prior = p, 
-             control = list(adapt_delta = 0.95),
+             control = list(adapt_delta = 0.99, max_treedepth = 12),
              silent = TRUE, 
              refresh = 0)
 ```
@@ -416,25 +420,26 @@ WQ5gp <- brm(WQ5_1_6 ~ gp(Seq) + Age + Gender01 + Occupation + Living14 + (1 | I
 ### Diagnostics
 
 ```{r}
-rstan::check_hmc_diagnostics(m_daily$fit)
+models <- list(WQ1gp, WQ2gp, WQ3gp, WQ4gp, WQ5gp)
 
-# check rhat and ESS
-if(max(rhat(eval(m_daily)), na.rm=T) >= 1.01) {
-  print("Warning: Rhat >=1.01")
-} else {
-  print("All Rhat <1.01")
+# Check divergences, tree depth, energy for each model
+for(m in models) {
+  rstan::check_hmc_diagnostics(eval(m)$fit)
 }
 
-if(min(neff_ratio(eval(m_daily)), na.rm=T) <= 0.2) {
-  print("Warning: ESS <=0.2")
-} else {
-  print("All ESS >0.2")
+# Check rhat and neff
+for (m in models) {
+  if (max(bayesplot::rhat(eval(m)), na.rm = T) >= 1.01)
+    print("Warning: Rhat >= 1.01")
+  
+  if (min(bayesplot::neff_ratio(eval(m)), na.rm = T) <= 0.2)
+    print("Warning: ESS <= 0.2")
 }
 ```
 
 ### Parameter estimates
 
-```{r, warning=FALSE, message=FALSE}
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
 # Set the same y axis on all plots
 
 p1 <- plot(conditional_effects(WQ1gp), plot = FALSE)[[5]] + 
@@ -544,17 +549,11 @@ pp_check(m_daily, type = "bars", nsamples = 100)
 rstan::check_hmc_diagnostics(m_daily$fit)
 
 # check rhat and ESS
-if(max(rhat(eval(m_daily)), na.rm=T) >= 1.01) {
+if(max(bayesplot::rhat(eval(m_daily)), na.rm=T) >= 1.01) 
   print("Warning: Rhat >=1.01")
-} else {
-  print("All Rhat <1.01")
-}
 
-if(min(neff_ratio(eval(m_daily)), na.rm=T) <= 0.2) {
+if(min(bayesplot::neff_ratio(eval(m_daily)), na.rm=T) <= 0.2) 
   print("Warning: ESS <=0.2")
-} else {
-  print("All ESS >0.2")
-}
 ```
 
 ### Parameter estimates
@@ -579,7 +578,7 @@ plot(conditional_effects(m_daily), plot = FALSE)[[5]] +
   theme_tufte()
 ```
 
-One things clear, the uncertainty at the end makes an inferences useless.
+One things clear, the uncertainty at the end makes an inferences hard
 
 ## Multivariate models with temporal variable
 
@@ -909,7 +908,7 @@ Before we put any trust in these models we need to check a number of diagnostics
 
 First, we check general HMC diagnostics. Second, we check that $\widehat{R} \leq 1.01$ and that the effective sample size (ESS) is $\geq 0.2$.
 
-```{r diagnostics, echo=TRUE}
+```{r diagnostics}
 models <- list(m_maas, m_spane, m_pwb, m_pst, m_se, m_se2, m_pph)
 
 # Check divergences, tree depth, energy for each model
@@ -918,26 +917,115 @@ for(m in models) {
 }
 
 # Check rhat and neff
-for(m in models) {
-  if(max(rhat(eval(m)), na.rm=T) >= 1.01) # diag in corr matrix always NA
+for (m in models) {
+  if (max(bayesplot::rhat(eval(m)), na.rm = T) >= 1.01)
+    # diag in corr matrix always NA
     print("Warning: Rhat >= 1.01")
-  if(min(neff_ratio(eval(m)), na.rm=T) <= 0.2) # diag in corr matrix always NA
+  
+  if (min(bayesplot::neff_ratio(eval(m)), na.rm = T) <= 0.2)
     print("Warning: ESS <= 0.2")
 }
 ```
 
-Hamiltonian Monte Carlo diagnostics indicate all is well, $\widehat{R} \leq 1.01$, and $\text{ESS} \geq 0.2$. One can also check traceplots for all models (i.e., using `plot(model)`).
+Hamiltonian Monte Carlo diagnostics indicate all is well (one can also check traceplots for all models, i.e., using `plot(model)`).
 
 ### Parameter estimates
 
 First, let's summarize what we have so far:
 
-1. Daily trends modeled with Gaussian Processes (results in Sect.~\@ref(daily)).
-2. Weekly trends modeled with Gaussian Processes (results in Sect.~\@ref(weekly)).
-3. Seven multivariate models with temporal variable to analyze entry/exit. Additionally, we have an eight model for analyzing two questions (1--2) in the SE instrument (using a Bernoulli likelihood).
+1. Weekly trends modeled with Gaussian Processes (results in Sect. \@ref(weekly)).
+2. Daily trends modeled with Gaussian Processes (results in Sect. \@ref(daily)). We've also shown conditional effects of `gender` since it is the main driver for deviations.
+3. Seven multivariate models with temporal variable to analyze entry/exit. Additionally, we have an eight model for analyzing two questions (Q1 and Q2) in the SE instrument (using a Bernoulli likelihood).
 
-We can now investigate which, if any, parameters are significant on the 95%-level for the third item. Any parameters that are significant could warrant further analysis.
+We can now investigate which, if any, parameters are significant on the 95%-level for the third item in the list, i.e., for each model, and each question,plot all parameters. Any parameters that are significant could warrant further analysis.
 
+For each model we first analyze the temporal variable $t$. Then we analyze the rest of the $\beta$ parameters. Finally, where appropriate we look at the conditional effects. All densities we plot are limited to 95% probability mass, while the 50% probability mass is shaded around a vertical line, which is the median.
+
+Each of these models has $n=$ `r nrow(m_maas$data)`.
+
+#### Mindful attention awareness scale (MAAS)
+
+The model estimated `r length(brms::parnames(m_maas))` parameters.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_maas, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
+  scale_y_discrete(limits=rev, labels = seq(15,1)) +
+  ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to MAAS questions")))
+```
+
+For Questions $1$--$3$, $8$, and $14$ the parameter $t$ is negative. In short, the respondents answered with lower responses at $t_1$ than at $t_0$ for these questions. If we look at each unique parameter, in each question, can we see which, if any, predictors drove these results?
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_maas, prob = 0.5, prob_outer = 0.95, regex_pars = "Age$")
+```
+
+Much variance makes the estimates uncertain and, ultimately, no parameter is significant (not even Q7, even though it looks that way).
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_maas, prob = 0.5, prob_outer = 0.95, regex_pars = "Gender01$")
+```
+
+Two notable parameters, first for Q1 (woman/transwoman answers significantly higher than man/transman), while in Q6 man/transman answers significantly lower.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_maas, prob = 0.5, prob_outer = 0.95, regex_pars = "Occupation$")
+```
+
+Occupation status (student/non-student) does not have any effect. Let's, finally, look at living conditions before we turn our attention to the next instrument.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+mcmc_areas(m_maas, prob = 0.5, prob_outer = 0.95, regex_pars = c("sharedhousing$", "withapartner", "withmyfamily"))
+```
+
+For Q15, if living with a partner, the respondent will respond significantly higher. The same for Q13 if the respondent lives with their family.
+
+TODO: Will do the same as above with all plots below (2021-02-26)
+
+#### Scale of positive and negative experience (SPANE)
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_spane, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
+  scale_y_discrete(limits=rev, labels = seq(12,1)) +
+  ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to SPANE questions")))
+```
+
+#### Personal well-being index (PWB)
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_pwb, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
+  scale_y_discrete(limits=rev, labels = seq(8,1)) +
+  ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to PWB questions")))
+```
+
+#### Positive thinking (PST)
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_pst, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
+  scale_y_discrete(limits=rev, labels = seq(22,1)) +
+  ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to PST questions")))
+```
+
+####  Self efficacy (SE)
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_se, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
+  scale_y_discrete(limits=rev, labels = seq(10,3)) +
+  ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to SE questions")))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_se2, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
+  scale_y_discrete(limits=rev, labels = seq(2,1)) +
+  ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to SE questions")))
+```
+
+#### Perceived productivity (PP)
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_pph, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
+  scale_y_discrete(limits=rev, labels = seq(11,1)) +
+  ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to PP questions")))
+```
 
 # Computational environment
 

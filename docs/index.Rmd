@@ -16,7 +16,6 @@ linkcolor: blue
 ---
 
 ```{r setup, include=FALSE}
-start.time <- Sys.time()
 knitr::opts_chunk$set(cache = TRUE)
 ```
 
@@ -979,8 +978,6 @@ mcmc_areas(m_maas, prob = 0.5, prob_outer = 0.95, regex_pars = c("sharedhousing$
 
 For Q15, if living with a partner, the respondent will respond significantly higher. The same for Q13 if the respondent lives with their family.
 
-TODO: Will do the same as above with all plots below (2021-02-26)
-
 #### Scale of positive and negative experience (SPANE)
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
@@ -996,6 +993,15 @@ mcmc_areas(m_pwb, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   scale_y_discrete(limits=rev, labels = seq(8,1)) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to PWB questions")))
 ```
+
+For Q4 the respondents gave higher responses at $t_1$. Let's look at the parameters for that question.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_pwb, regex_pars = c("^b_PWBQ417_[A-H]","^b_PWBQ417_[J-Z]")) + 
+  ggtitle("Question 4")
+```
+
+No parameters influencing that question to a larger extent. In short, respondent, no matter their age, etc., responded higher at $t_1$.
 
 #### Positive thinking (PST)
 
@@ -1027,17 +1033,40 @@ mcmc_areas(m_pph, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to PP questions")))
 ```
 
+Questions $2$, $6$, and $11$, show a significant difference when moving from $t_0$ to $t_1$. Let's examine the parameters for these three questions.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
+           regex_pars = c("^b_PPHQ215_[A-H]",
+                          "^b_PPHQ215_[J-Z]")) + 
+  ggtitle("Question 2")
+```
+
+Age has a negative impact (lower age lower on the response), however it is not significant.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+summary(m_pph)
+mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
+           regex_pars = c("^b_PPHQ615_[A-H]",
+                          "^b_PPHQ615_[J-Z]")) + 
+  ggtitle("Question 6")
+```
+
+Gender has a negative impact (male/transmale answers lower on the response), however it is not significant.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
+           regex_pars = c("^b_PPRQ1110_[A-H]",
+                          "^b_PPRQ1110_[J-Z]")) + 
+  ggtitle("Question 11")
+```
+
+Living with a partner makes respondents answer with higher response in Q11, however it is not significant.
+
 # Computational environment
 
 ```{r}
 print(sessionInfo(), locale=FALSE)
-```
-
-Check how much time it takes to compile this document.
-
-```{r}
-end.time <- Sys.time()
-round((end.time - start.time), 1)
 ```
 
 # References

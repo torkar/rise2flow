@@ -175,8 +175,6 @@ for(j in 3:22){
 In the `pers` dataset we have a mix of variable types we need to deal with. `Age` should be scaled, `Gender` and `Occupation` set to 1/2, and `Living conditions` set to factors (unordered).
 
 ```{r clean-pers, warnings = FALSE, echo = TRUE}
-# convert Age to numeric and standardize (note we have two NAs, so we suppress the warning we get)
-suppressWarnings(pers$Age <- scale(as.numeric(pers$Age)))
 
 # set 1/2 as indicators for gender
 pers$Gender_0_1 <- ifelse(pers$Gender_0_1 == "Man/Transman", 1, 2)
@@ -217,6 +215,9 @@ Remember, the main question the study tries to answer is: **Is there a differenc
 In order for us to conduct inferences along this line of thinking, we will make use of dummy variable regression estimators (DVRE), which is numerically identical to deviation score estimators. The DVRE approach dummy encodes our time variable $t$ and sets an index $0/1$, where $t_0 = 0$ and $t_1 = 1$. In short, each subject (`ID`) will have two rows where one row is the entry instrument $t = 0$, and one row has the exit instrument $t = 1$. We'll then see if our predictors are useful for predicting the outcome (i.e., is there a significant difference in the $\beta$ estimators) and then also investigate if the outcome at $t_0$ equals $t_1$ (and if they aren't the same, how much do they differ?)
 
 ```{r split_join, echo=TRUE}
+# convert Age to numeric and standardize (note we have two NAs, so we suppress the warning we get)
+suppressWarnings(pers$Age <- scale(as.numeric(pers$Age)))
+
 # create new column t, and set to 0 or 1
 entry$t <- 0
 exit$t <- 1
@@ -577,7 +578,7 @@ plot(conditional_effects(m_daily), plot = FALSE)[[5]] +
   theme_tufte()
 ```
 
-One things clear, the uncertainty at the end makes an inferences hard
+One things clear, since the uncertainty explodes at the end (the gray area grows a lot) it makes it very hard to make any inferences. There might be a difference here, but we can't possibly see it since the uncertainty has so large.
 
 ## Multivariate models with temporal variable
 
@@ -933,14 +934,18 @@ Hamiltonian Monte Carlo diagnostics indicate all is well (one can also check tra
 First, let's summarize what we have so far:
 
 1. Weekly trends modeled with Gaussian Processes (results in Sect. \@ref(weekly)).
-2. Daily trends modeled with Gaussian Processes (results in Sect. \@ref(daily)). We've also shown conditional effects of `gender` since it is the main driver for deviations.
+2. Daily trends modeled with Gaussian Processes (results in Sect. \@ref(daily)). We've also shown conditional effects of `gender` since it is the main driver for differences we're seeing.
 3. Seven multivariate models with temporal variable to analyze entry/exit. Additionally, we have an eight model for analyzing two questions (Q1 and Q2) in the SE instrument (using a Bernoulli likelihood).
 
-We can now investigate which, if any, parameters are significant on the 95%-level for the third item in the list, i.e., for each model, and each question,plot all parameters. Any parameters that are significant could warrant further analysis.
+We can now investigate which, if any, parameters are significant on the 95%-level for the third item in the list, i.e., for each model, and each question, plot all parameters. Any parameters that are significant could warrant further analysis.
 
 For each model we first analyze the temporal variable $t$. Then we analyze the rest of the $\beta$ parameters. Finally, where appropriate we look at the conditional effects. All densities we plot are limited to 95% probability mass, while the 50% probability mass is shaded around a vertical line, which is the median.
 
-Each of these models has $n=$ `r nrow(m_maas$data)`.
+```{r class.source="bg-danger", class.output="bg-warning", eval=FALSE}
+In short, any density that does not cross zero (the vertical line) is potentially a significant effect.
+```
+
+Each of these models used a sample size of $n=$ `r nrow(m_maas$data)` for sampling.
 
 #### Mindful attention awareness scale (MAAS)
 
@@ -1001,7 +1006,7 @@ mcmc_areas(m_pwb, regex_pars = c("^b_PWBQ417_[A-H]","^b_PWBQ417_[J-Z]")) +
   ggtitle("Question 4")
 ```
 
-No parameters influencing that question to a larger extent. In short, respondent, no matter their age, etc., responded higher at $t_1$.
+No parameters influencing that question to a larger extent. In short, respondents, no matter their age, etc., responded higher at $t_1$ for Q4.
 
 #### Positive thinking (PST)
 
@@ -1011,6 +1016,8 @@ mcmc_areas(m_pst, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to PST questions")))
 ```
 
+Nothing here.
+
 ####  Self efficacy (SE)
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
@@ -1019,11 +1026,15 @@ mcmc_areas(m_se, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to SE questions")))
 ```
 
+Nothing here.
+
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_se2, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   scale_y_discrete(limits=rev, labels = seq(2,1)) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to SE questions")))
 ```
+
+Nothing here.
 
 #### Perceived productivity (PP)
 
@@ -1033,7 +1044,7 @@ mcmc_areas(m_pph, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to PP questions")))
 ```
 
-Questions $2$, $6$, and $11$, show a significant difference when moving from $t_0$ to $t_1$. Let's examine the parameters for these three questions.
+Questions $2$, $6$, and $11$, show a significant difference when moving from $t_0$ to $t_1$ (lower responses at $t_1$). Let's examine the parameters for these three questions.
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
@@ -1042,17 +1053,22 @@ mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
   ggtitle("Question 2")
 ```
 
-Age has a negative impact (lower age lower on the response), however it is not significant.
+The predictor `age` has a negative effect (the higher the age the lower the response). How does it look like as a conditional effect? A conditional effect keeps all predictors fixed except for the one we're interested in, i.e., `age`.
+
+```{r ce-age, warning=FALSE}
+conditional_effects(m_pph, effects="Age", resp = "PPHQ215")
+```
+
+So `age` seems to be the main driver and this is how it looks like. Zero on the $x$-axis is in this case the median age, i.e., approximately $36$ years.
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
-summary(m_pph)
 mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
            regex_pars = c("^b_PPHQ615_[A-H]",
                           "^b_PPHQ615_[J-Z]")) + 
   ggtitle("Question 6")
 ```
 
-Gender has a negative impact (male/transmale answers lower on the response), however it is not significant.
+Gender has a negative effect (male/transmale answers lower on the response), however it is actually *not* significant. The only thing we can say is that a number of parameters makes respondents, on average, respond with lower values at $t_1$.
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
@@ -1061,7 +1077,7 @@ mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
   ggtitle("Question 11")
 ```
 
-Living with a partner makes respondents answer with higher response in Q11, however it is not significant.
+Living with a partner makes respondents answer with higher response in Q11, however it is *not* significant since it *does* cross zero. The only thing we can say is that a number of parameters makes respondents, on average, respond with lower values at $t_1$.
 
 # Computational environment
 

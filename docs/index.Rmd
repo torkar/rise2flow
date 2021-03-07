@@ -266,7 +266,7 @@ In Appendix \@ref(appA) a comparison of different likelihoods can be found. Addi
 
 ### Prior and posterior predictive checks
 
-We want to model the weekly instrument and how it varies over time $t$. In this case, $t$ will be modeled using a Gaussian Process and then each individual in the dataset will be modeled using a varying intercept. Varying intercepts of `ID` should be modeled as correlated (since we actuallt have five parts we model, i.e., five questions). We can assume that the answers should correlate.
+We want to model the weekly instrument and how it varies over time $t$. In this case, $t$ will be modeled using a Gaussian Process and then each individual in the dataset will be modeled using a varying intercept. Varying intercepts of `ID` should be modeled as correlated (since we actually have five parts we model, i.e., five questions). We can assume that the answers should correlate.
 
 ```{r, warning=FALSE, message=FALSE}
 # make sure ID is a factor
@@ -278,7 +278,16 @@ weekly <- weekly[order(weekly$ID),]
 weekly$Seq <- sequence(tabulate(weekly$ID))
 ```
 
-The priors are fairly uniform on the outcome space. Let's sample with data now.
+```{r echo=FALSE, eval=FALSE}
+data.frame(table(weekly$Seq)) %>%
+    ggplot(aes(x =Var1, y = Freq)) +
+    geom_col() + 
+  coord_flip() + 
+  xlab("Week") + 
+  ylab("Frequency") +
+  theme(text = element_text(size = 18))
+```
+
 
 ```{r pri-weekly, warning=FALSE, message=FALSE}
 p <- get_prior(mvbind(WQ1_1_6,WQ2_1_6,WQ3_1_6,WQ4_1_6,WQ5_1_6) ~ gp(Seq) + 
@@ -304,7 +313,7 @@ m_weekly <- brm(mvbind(WQ1_1_6,WQ2_1_6,WQ3_1_6,WQ4_1_6,WQ5_1_6) ~ gp(Seq) +
 pp_check(m_weekly, type="bars", nsamples = 200, resp = "WQ116")
 ```
 
-Looks good. Now sample with data.
+The priors are fairly uniform on the outcome space. Let's sample with data now.
 
 ```{r sample-weekly, warning=FALSE, message=FALSE}
 m_weekly <- brm(mvbind(WQ1_1_6,WQ2_1_6,WQ3_1_6,WQ4_1_6,WQ5_1_6) ~ gp(Seq) + 
@@ -348,8 +357,8 @@ p1 <- p[[1]] +
   ylim(1,4.53) +
   ylab("Response") +
   scale_x_continuous(name="", 
-                     limits = c(1,11), 
-                     breaks = seq(1,11, by = 2)) +
+                     limits = c(1,12), 
+                     breaks = seq(1,12, by = 2)) +
   ggtitle("Q1") +
   theme(text = element_text(size=16),
         plot.title = element_text(hjust = 0.5))
@@ -358,8 +367,8 @@ p2 <- p[[2]] +
   ylim(1,4.53) +
   ylab("") +
   scale_x_continuous(name="", 
-                     limits = c(1,11), 
-                     breaks = seq(1,11, by = 2)) +
+                     limits = c(1,12), 
+                     breaks = seq(1,12, by = 2)) +
   ggtitle("Q2") +
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank(),
@@ -371,8 +380,8 @@ p3 <- p[[3]] +
   ylim(1,4.53) +
   ylab("") +
   scale_x_continuous(name="Week", 
-                     limits = c(1,11), 
-                     breaks = seq(1,11, by = 2)) +
+                     limits = c(1,12), 
+                     breaks = seq(1,12, by = 2)) +
   ggtitle("Q3") +
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank(),
@@ -384,8 +393,8 @@ p4 <- p[[4]] +
   ylim(1,4.53) +
   ylab("") +
   scale_x_continuous(name="", 
-                     limits = c(1,11), 
-                     breaks = seq(1,11, by = 2)) +
+                     limits = c(1,12), 
+                     breaks = seq(1,12, by = 2)) +
   ggtitle("Q4") +
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank(),
@@ -397,8 +406,8 @@ p5 <- p[[5]] +
   ylim(1,4.53) +
   ylab("") +
   scale_x_continuous(name="", 
-                     limits = c(1,11), 
-                     breaks = seq(1,11, by = 2)) +
+                     limits = c(1,12), 
+                     breaks = seq(1,12, by = 2)) +
   ggtitle("Q5") +
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank(),
@@ -427,7 +436,6 @@ daily$Seq <- sequence(tabulate(daily$ID))
 # drop column 2:3
 daily <- daily[-c(2:3)]
 ```
-
 
 ```{r}
 daily[rowSums(is.na(daily)) > 0,]

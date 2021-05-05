@@ -38,6 +38,7 @@ options(mc.cores = parallel::detectCores())
 ```
 
 # Introduction
+
 The Rise 2 Flow study used a number of instruments during the entry, exit, and weekly sessions (additionally personal data was collected during the entry session).
 
 For entry and exit sessions six instruments were used:
@@ -56,7 +57,7 @@ To summarize, the study was executed according to,
 1. An entry survey, at time $t_0$ (MAAS, etc.) with personal data
 2. A weekly survey, at time $t_{1}, \ldots, t_{n}$
 3. Daily surveys
-3. An exit survey, at time $t_{n+1}$ (MAAS, etc.)
+4. An exit survey, at time $t_{n+1}$ (MAAS, etc.)
 
 The main question the study tries to answer is: **Is there a difference in the responses (i.e., higher/lower values on responses), across all or among some instruments, over time?**
 
@@ -67,11 +68,11 @@ In order to answer that question we can first of all compare outcomes of $t_0$ a
 First we load all five datasets. For each dataset, make sure we set correct variable types.
 
 ```{r load, echo=TRUE}
-entry <- read.xlsx(here("data/R2F Quant Comp Data Entry.xlsx")) # all instruments
-exit <- read.xlsx(here("data/R2F Quant Comp Data Exit.xlsx")) # same here
-weekly <- read.xlsx(here("data/R2F Quant Weekly.xlsx"), detectDates = T)
-pers <- read.xlsx(here("data/R2F Pers Data.xlsx")) # personal data
-daily <- read.xlsx(here("data/R2F Daily.xlsx"), detectDates = T)
+entry <- read.xlsx(here("data/E1/R2F Quant Comp Data Entry.xlsx")) # all instruments
+exit <- read.xlsx(here("data/E1/R2F Quant Comp Data Exit.xlsx")) # same here
+weekly <- read.xlsx(here("data/E1/R2F Quant Weekly.xlsx"), detectDates = T)
+pers <- read.xlsx(here("data/E1/R2F Pers Data.xlsx")) # personal data
+daily <- read.xlsx(here("data/E1/R2F Daily.xlsx"), detectDates = T)
 ```
 
 ## `entry` and `exit` datasets

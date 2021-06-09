@@ -1,8 +1,8 @@
 ---
-title: "Rise 2 Flow"
+title: "Rise 2 Flow: A family of experiments"
 subtitle: "A replication package"
-author: "B. Penzenstadler & R. Torkar"
-date: "First version: 2020-12-26. Current version: `r Sys.time()`."
+author: "Birgit Penzenstadler, Cristina Martinez Montez, and Richard Torkar"
+date: "First version: 2021-05-05. Current version: `r Sys.time()`."
 output: 
   bookdown::html_document2:
     toc: true
@@ -31,15 +31,24 @@ library("ggplot2")
 library("ggthemes")
 library("patchwork") 
 library("openxlsx")
+library("tidybayes")
 library("data.table")
 library("here") # make sure Rmd and Rproj root is the same
+library(scico)
+
+sl <- scico(palette = "lajolla", n = 9)
+
 rstan::rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 ```
 
 # Introduction
 
-The Rise 2 Flow study used a number of instruments during the entry, exit, and weekly sessions (additionally personal data was collected during the entry session).
+During spring 2021 the Rise 2 Flow study was replicated in yet another experiment `E2`. The setup and execution was very similar to the first instance (`E1`) of the experiment. In the `data/` directory one can find data for both instances `E1/` and `E2/`. In the root of the `data/` directory one can find one XLS file with all relevant data assembled.
+
+The purpose of this document is to show how the analysis of the experiments was done. With this replication package anyone can download and rerun the analysis, and check our assumptions.
+
+The experiment used a number of instruments during the entry, exit, and weekly sessions (additionally personal data was collected during the entry session).
 
 For entry and exit sessions six instruments were used:
 
@@ -52,324 +61,1108 @@ For entry and exit sessions six instruments were used:
 
 For the weekly sessions the WHO-5 well-being index was used (WHO-5).^[https://www.psykiatri-regionh.dk/who-5/who-5-questionnaires/Pages/default.aspx]
 
-To summarize, the study was executed according to,
+To summarize, the experiments were executed according to,
 
 1. An entry survey, at time $t_0$ (MAAS, etc.) with personal data
-2. A weekly survey, at time $t_{1}, \ldots, t_{n}$
-3. Daily surveys
-4. An exit survey, at time $t_{n+1}$ (MAAS, etc.)
+2. A weekly survey, at time $t_{\text{w}_{1}}, \ldots, t_{\text{w}_{n}}$
+3. Daily surveys, at time $t_{\text{d}_{1}}, \ldots, t_{\text{d}_{n}}$ 
+4. An exit survey, at time $t_{1}$ (MAAS, etc.)
 
 The main question the study tries to answer is: **Is there a difference in the responses (i.e., higher/lower values on responses), across all or among some instruments, over time?**
 
-In order to answer that question we can first of all compare outcomes of $t_0$ and $t_1$, and contrast with personal data, e.g., age and gender. Next, the weekly session can be used to investigate the trend over time, and perhaps see where a noticeable effect, if it exists, shows up.
+## Data cleaning
 
-# Data cleaning
+In order to answer the above question we can first of all compare outcomes at $t_0$ and $t_1$, and condition on personal data, e.g., age and gender. Next, the weekly and daily questions could be used to analyze the trend over time, and perhaps see where a noticeable effect, if it exists, shows up.
 
-First we load all five datasets. For each dataset, make sure we set correct variable types.
+### Entry and exit instruments
 
-```{r load, echo=TRUE}
-entry <- read.xlsx(here("data/E1/R2F Quant Comp Data Entry.xlsx")) # all instruments
-exit <- read.xlsx(here("data/E1/R2F Quant Comp Data Exit.xlsx")) # same here
-weekly <- read.xlsx(here("data/E1/R2F Quant Weekly.xlsx"), detectDates = T)
-pers <- read.xlsx(here("data/E1/R2F Pers Data.xlsx")) # personal data
-daily <- read.xlsx(here("data/E1/R2F Daily.xlsx"), detectDates = T)
+```{r load_data, echo=TRUE}
+d <- read.csv(here("data/cleanedData.csv"), row.names = 1)
+dim(d)
 ```
 
-## `entry` and `exit` datasets
+In total, we have `r dim(d)[1]` rows and `r dim(d)[2]` columns; so not bad at all actually ($N=187$). Each row corresponds to one subject answering either the entry ($t_0$) or the exit ($t_1$) survey. In some cases we have subjects that have only answered one of them!
 
-We need to set a number of columns as factors (ordered factors in many cases). Additionally, when we have Yes/No answers, as we do in some questions below, we set them to 0/1 since they will be modeled with a Bernoulli likelihood.
-
-First we clean the `entry` dataset.
-
-```{r clean-entry, echo=TRUE, warning=FALSE}
-for(j in 3:17){
-  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Almost never", "Very infrequently", "Somewhat infrequently", "Somewhat frequently", "Very frequently", "Almost always"), ordered = TRUE))
-}
-
-for(j in 18:29){
-  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Very rarely or never", "Rarely", "Sometimes", "Often", "Very often or always"), ordered = TRUE))
-}
-
-for(j in 30:37){
-  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Strongly disagree", "Disagree", "Slightly disagree", "Mixed or neither agree nor disagree", "Slightly agree", "Agree", "Strongly agree"), ordered = TRUE))
-}
-
-for(i in 38:59)
-  entry[,eval(i)] <- ifelse(entry[eval(i)] == 'Yes', 1, 0)
-
-for(j in 60:69){
-  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("Hardly true","Rather true","Exactly true"), ordered = TRUE))
-}
-
-for(j in 70:76){
-  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("None of the time","A little of the time","Some of the time","Most of the time","All of the time"), ordered = TRUE))
-}
-
-for(j in 77:79){
-  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("1","2","3","4","5","6","7","8","9","10"), ordered = TRUE))
-}
-
-for(j in 80:80){
-  set(entry, i=NULL, j=j, value=factor(entry[[j]], levels = c("You were a lot worse than other workers","You were a little worse than other workers","You were somewhat worse than other workers","You were about average","You were somewhat better than other workers","You were a little better than other workers","You were a lot better than other workers"), ordered = TRUE))
-}
+```{r}
+table(table(d$ID) >1)
 ```
 
-Next, we clean the `exit` dataset, which consists of the same variables as above.
+So, $105$ subjects filled out the survey once, and $41$ filled out the entry *and* exit surveys, i.e., in total $146$ subjects participated in both experiments.
 
-```{r clean-exit, echo=TRUE, warning=FALSE}
-for(j in 3:17){
-  set(exit, i=NULL, j=j, value=factor(exit[[j]], levels = c("Almost never", "Very infrequently", "Somewhat infrequently", "Somewhat frequently", "Very frequently", "Almost always"), ordered = TRUE))
-}
+There should not be more than $>2$ rows per subject and it should be encoded as an integer for reasons of anonymity.
 
-for(j in 18:29){
-  set(exit, i=NULL, j=j, value=factor(exit[[j]], levels = c("Very rarely or never", "Rarely", "Sometimes", "Often", "Very often or always"), ordered = TRUE))
-}
-
-for(j in 30:37){
-  set(exit, i=NULL, j=j, value=factor(exit[[j]], levels = c("Strongly disagree", "Disagree", "Slightly disagree", "Mixed or neither agree nor disagree", "Slightly agree", "Agree", "Strongly agree"), ordered = TRUE))
-}
-
-for(i in 38:59)
-  exit[,eval(i)] <- ifelse(exit[eval(i)] == 'Yes', 1, 0)
-
-
-for(j in 60:69){
-  set(exit, i=NULL, j=j, value=factor(exit[[j]], levels = c("Hardly true","Rather true","Exactly true"), ordered = TRUE))
-}
-
-for(j in 70:76){
-  set(exit, i=NULL, j=j, value=factor(exit[[j]], levels = c("None of the time","A little of the time","Some of the time","Most of the time","All of the time"), ordered = TRUE))
-}
-
-for(j in 77:79){
-  set(exit, i=NULL, j=j, value=factor(exit[[j]], levels = c("1","2","3","4","5","6","7","8","9","10"), ordered = TRUE))
-}
-
-for(j in 80:80){
-  set(exit, i=NULL, j=j, value=factor(exit[[j]], levels = c("You were a lot worse than other workers","You were a little worse than other workers","You were somewhat worse than other workers","You were about average","You were somewhat better than other workers","You were a little better than other workers","You were a lot better than other workers"), ordered = TRUE))
-}
+```{r}
+max(table(d$ID))
+typeof(d$ID)
 ```
 
-## `weekly` dataset
+For each column (variable) we check which values it has and then code it correctly,
 
-The `weekly` dataset contains five columns of the same type, which we set as ordered categorical.
-
-```{r clean-weekly, warnings = FALSE, echo = TRUE}
-for(j in 4:8){
-  set(weekly, i=NULL, j=j, value=factor(weekly[[j]], levels = c("At no time", "Less than half of the time", "Some of the time", "More than half of the time",  "Most of the time", "All of the time"), ordered = TRUE))
+```{r}
+# MAAS instrument
+for(j in 2:16){
+  set(d, i=NULL, j=j, value=factor(d[[j]], levels = c("Almost never", "Very infrequently", "Somewhat infrequently", "Somewhat frequently", "Very frequently", "Almost always"), ordered = TRUE))
 }
+
+# SPANE instrument
+for(j in 17:28){
+  set(d, i=NULL, j=j, value=factor(d[[j]], levels = c("Very rarely or never", "Rarely", "Sometimes", "Often", "Very often or always"), ordered = TRUE))
+}
+
+# PWB instrument
+for(j in 29:36){
+  set(d, i=NULL, j=j, value=factor(d[[j]], levels = c("Strongly disagree", "Disagree", "Slightly disagree", "Mixed or neither agree nor disagree", "Slightly agree", "Agree", "Strongly agree"), ordered = TRUE))
+}
+
+# PST instrument
+for(i in 37:58)
+  d[,eval(i)] <- ifelse(d[eval(i)] == 'Yes', 1, 0)
+
+# SEQ instrument
+for(j in 59:68){
+  set(d, i=NULL, j=j, value=factor(d[[j]], levels = c("Not true","Hardly true","Rather true","Exactly true"), ordered = TRUE))
+}
+
+# PP instrument
+for(j in 69:75){
+  set(d, i=NULL, j=j, value=factor(d[[j]], levels = c("None of the time","A little of the time","Some of the time","Most of the time","All of the time"), ordered = TRUE))
+}
+for(j in 76:78){
+  set(d, i=NULL, j=j, value=factor(d[[j]], levels = c("1","2","3","4","5","6","7","8","9","10"), ordered = TRUE))
+}
+for(j in 79:79){
+  set(d, i=NULL, j=j, value=factor(d[[j]], levels = c("You were a lot worse than other workers","You were a little worse than other workers","You were somewhat worse than other workers","You were about average","You were somewhat better than other workers","You were a little better than other workers","You were a lot better than other workers"), ordered = TRUE))
+}
+
+# make sure Age is standardized
+d$Age <- scale(d$Age)
 ```
 
-## `pers` dataset
+To summarize, in the first column we have subject ID, then the MAAS instrument ($15$ questions), SPANE ($12$), PWB ($8$), PST ($22$), SE ($10$), PP ($11$), age (standardized), gender ($1/2$), occupation (student or non-students, $1/2$), living condition (four unordered categories), temporal variable ($0/1$ for $t_0 / t_1$), and experiment ($1/2$ for first or second experiment).
 
-In the `pers` dataset we have a mix of variable types we need to deal with. `Age` should be scaled, `Gender` and `Occupation` set to 1/2, and `Living conditions` set to factors (unordered).
+### Weekly and daily data
 
-```{r clean-pers, warnings = FALSE, echo = TRUE}
+First, load the weekly data set.
 
-# set 1/2 as indicators for gender
-pers$Gender_0_1 <- ifelse(pers$Gender_0_1 == "Man/Transman", 1, 2)
+```{r}
+# drop first index column with `row.names = 1`
+weekly <- read.csv(here("data/weekly.csv"), row.names = 1)
 
-# many categories exist for occupation, but let's simplify this so we can 
-# use this variable for something. Indicate if they are students or not.
-pers$Occupation <- ifelse(pers$Occupation == "Student", 1, 2)
-
-# make living condition a categorical factor (unordered)
-pers$Living_1_4 <- factor(pers$Living_1_4, levels = c("I live by myself", "I live in shared housing", "I live with a partner", "I live with my family"))
-
-# remove the last three columns since we have >64% NAs
-pers[,7:9] <- NULL
+str(weekly)
 ```
 
-## Missingness analysis
+We have `r dim(weekly)[1]` rows and `r dim(weekly)[2]` columns. The first column contains a unique ID for each subject. Columns $2$--$6$ are the $5$ questions asked (Likert scale $1,\ldots,6$), Column $7$ indicates if they were part of the 1st (0) or 2nd (1) experiment. Finally, the last column is a sequence indicator, i.e., the first subject answered the questions four times, $1,\ldots,4$, the second subject twice, and so on.
 
-Check how many cells are NA.
+Let's turn our attention to the daily data set,
 
-```{r missingness, echo=TRUE}
-table(is.na(entry))
-table(is.na(exit))
-table(is.na(weekly))
-table(is.na(pers))
+```{r}
+daily <- read.csv(here("data/daily.csv"), row.names = 1)
+
+str(daily)
 ```
 
-Clearly we have missing data here, but it's only a few percentages ($0.6$--$1.8$%). Let's use complete case analysis for now (i.e., remove all rows containing NAs). Later, if needed, we can model the missingness in a principled Bayesian way.
-
-```{r rm-NAs, echo=TRUE}
-entry <- entry[complete.cases(entry), ]
-exit <- exit[complete.cases(exit), ]
-weekly <- weekly[complete.cases(weekly), ]
-pers <- pers[complete.cases(pers), ]
-```
-
-Remember, the main question the study tries to answer is: **Is there a difference in the responses (i.e., higher/lower values on responses), across all or among some instruments, over time?** This means that for now we can discard of the weekly data and instead focus on the entry and exit instruments, together with personal data (i.e., age, gender, occupation, and living conditions).
-
-In order for us to conduct inferences along this line of thinking, we will make use of dummy variable regression estimators (DVRE), which is numerically identical to deviation score estimators. The DVRE approach dummy encodes our time variable $t$ and sets an index $0/1$, where $t_0 = 0$ and $t_1 = 1$. In short, each subject (`ID`) will have two rows where one row is the entry instrument $t = 0$, and one row has the exit instrument $t = 1$. We'll then see if our predictors are useful for predicting the outcome (i.e., is there a significant difference in the $\beta$ estimators) and then also investigate if the outcome at $t_0$ equals $t_1$ (and if they aren't the same, how much do they differ?)
-
-```{r split_join, echo=TRUE}
-# convert Age to numeric and standardize (note we have two NAs, so we suppress the warning we get)
-suppressWarnings(pers$Age <- scale(as.numeric(pers$Age)))
-
-# create new column t, and set to 0 or 1
-entry$t <- 0
-exit$t <- 1
-
-# Remove all suffixes in both files so we have the same column names
-colnames(entry) <- gsub('_en', '', colnames(entry))
-colnames(exit) <- gsub('_ex', '', colnames(exit))
-
-# also remove all dashes and underscores in column names
-colnames(entry) <- gsub('-', '', colnames(entry))
-colnames(exit) <- gsub('-', '', colnames(exit))
-colnames(pers) <- gsub('-', '', colnames(pers))
-
-# add rows of entry and exit
-d <- rbind(entry, exit)
-
-# keep only rows if they show up twice, so we have a within-measurement of each 
-# individual at time t_0 and t_1
-d <- ddply(d, .(ID), function(x){
-    if(nrow(x)==1){
-        return(NULL)
-    }
-    else{
-        return(x)
-    }
-})
-
-table(d$t)
-```
-
-We have $13$ individuals with entry and exit surveys completely filled out, i.e. $n=26$. Let's also add the `pers` dataset.
-
-```{r, echo = TRUE}
-d <- inner_join(d, pers, by = "ID")
-
-# so two NAs now
-table(is.na(d))
-
-# model the missingness using Bayesian imputation with a Cumulative
-# family is not straightforward so drop these two cases
-d <- d[complete.cases(d),]
-
-# drop columns not needed
-d <- d[-c(1,82)]
-
-# set ID as factor
-d$ID <- as.factor(d$ID)
-```
-
-
+We have `r dim(daily)[1]` rows and `r dim(daily)[2]` columns. The first column is the subject's ID. The response to the daily question comes next (Likert scale $1,\ldots,10$). After that we have an indicator which experiment the subject belongs to and a sequence indicator, as was the case in the weekly data set.
 
 # Model designs
 
-In Appendix \@ref(appA) a comparison of different likelihoods can be found. Additionally, one can see comparisons between a null model and a full model.
+In Appendix \@ref(appA) a comparison of different likelihoods can be found. 
 
-## `weekly` data {#weekly}
+## `weekly` data {.tabset}
 
-### Prior and posterior predictive checks
+If we take a random sample of $32$ subjects we will see how complicated it will be to analyze this. For the first question we have in the weekly survey instrument, for each of the $32$ subjects, we've plotted answers (dots) they provided on a $1,\ldots,6$ Likert scale; then we've drawn a linear model for what we've got.
 
-We want to model the weekly instrument and how it varies over time $t$. In this case, $t$ will be modeled using a Gaussian Process and then each individual in the dataset will be modeled using a varying intercept. Varying intercepts of `ID` should be modeled as correlated (since we actually have five parts we model, i.e., five questions). We can assume that the answers should correlate.
-
-```{r, warning=FALSE, message=FALSE}
-# make sure ID is a factor
-weekly$ID <- as.factor(weekly$ID)
-
-# Need to format data so that each person's measurements goes 
-# from 1 ... n, according to order, then we use those numbers as temporal var
-weekly <- weekly[order(weekly$ID),]
-weekly$Seq <- sequence(tabulate(weekly$ID))
+```{r fig.width=9, fig.height=9}
+weekly |>
+  filter(ID %in% sample(x = max(weekly$ID), size = 32)) %>%
+  ggplot(aes(x = Seq, y = WQ1_1_6)) +
+  geom_point() +
+  scale_x_continuous(breaks = seq(from = 2, to = 12, by = 2)) +
+  scale_y_continuous(breaks = c(2,4,6)) +
+  stat_smooth(method = "lm", se = F) +
+  ylab("Question 1 (Likert 1 to 6)") +
+  xlab("Week number") +
+  theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20)) +
+  facet_wrap( ~ ID, ncol = 4)
 ```
 
-```{r echo=FALSE, eval=FALSE}
-data.frame(table(weekly$Seq)) %>%
-    ggplot(aes(x =Var1, y = Freq)) +
-    geom_col() + 
-  coord_flip() + 
-  xlab("Week") + 
-  ylab("Frequency") +
-  theme(text = element_text(size = 18))
+### WHO-5: Q1 
+
+#### Prior predictive checks
+
+We want to model the weekly instrument and how it varies over time $t$ (in our case the sequence variable `Seq`). In this case, $t$ will be modeled using a Gaussian Process and then each individual in the dataset will be modeled using a varying intercept (in addition we'll model $\sigma$, called `disc` below, for each experimental session). 
+
+An information theoretical comparison using LOO showed that a model with varying intercepts for each individual had considerably better relative out of sample performance with $\Delta\text{elpd} = -77.1$ and $\Delta\text{SE}=11.2$, i.e., assuming a $99\%$ $z$-score of $2.576$ we have $\text{CI}_{95\%}[-106;-48]$.
+
+```{r warning=FALSE, message=FALSE}
+m_weekly_1 <- brm(
+  bf(WQ1_1_6 ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = weekly,
+  family = cumulative(probit),
+  sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0
+)
+
+pp_check(m_weekly_1,
+         type = "bars",
+         nsamples = 200)
 ```
 
+The combinations of our priors are fairly uniform on the outcome space. Let's sample with data now.
 
-```{r pri-weekly, warning=FALSE, message=FALSE}
-p <- get_prior(mvbind(WQ1_1_6,WQ2_1_6,WQ3_1_6,WQ4_1_6,WQ5_1_6) ~ gp(Seq) + 
-                 (1 |c| ID), 
-               data = weekly,
-               family = cumulative(), 
-               prior = p)
+#### Sampling and diagnostics
 
-p$prior[1:2] <- "lkj(2)"
-p$prior[c(4:8,16:21,29:32,42:47,55:60)] <- "normal(0,2)"
-p$prior[c(10,23,36,49,62)] <- "inv_gamma(4,1)"
-p$prior[c(11:15,24:28,37:41,50:54,62:67)] <- "weibull(2,1)"
-
-m_weekly <- brm(mvbind(WQ1_1_6,WQ2_1_6,WQ3_1_6,WQ4_1_6,WQ5_1_6) ~ gp(Seq) + 
-                 (1 |c| ID), 
-               data = weekly,
-               family = cumulative(), 
-               sample_prior = "only",
-               prior = p,
-               silent = TRUE, 
-               refresh = 0)
-
-pp_check(m_weekly, type="bars", nsamples = 200, resp = "WQ116")
+```{r warning=FALSE, message=FALSE}
+m_weekly_1 <- brm(
+  bf(WQ1_1_6 ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = weekly,
+  family = cumulative(probit),
+  # sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0,
+  control = list(adapt_delta = 0.99)
+)
 ```
 
-The priors are fairly uniform on the outcome space. Let's sample with data now.
-
-```{r sample-weekly, warning=FALSE, message=FALSE}
-m_weekly <- brm(mvbind(WQ1_1_6,WQ2_1_6,WQ3_1_6,WQ4_1_6,WQ5_1_6) ~ gp(Seq) + 
-                 (1 |c| ID), 
-               data = weekly,
-               family = cumulative(), 
-               prior = p,
-               silent = TRUE, 
-               refresh = 0)
-
-pp_check(m_weekly, type="bars", resp = "WQ116", nsamples=200)
-pp_check(m_weekly, type="bars", resp = "WQ216", nsamples=200)
-pp_check(m_weekly, type="bars", resp = "WQ316", nsamples=200)
-pp_check(m_weekly, type="bars", resp = "WQ416", nsamples=200)
-pp_check(m_weekly, type="bars", resp = "WQ516", nsamples=200)
-```
-
-Good estimations and the uncertainty varies considerably between responses.
-
-### Diagnostics
+Let's have a look at some diagnostics.
 
 ```{r}
-# Check divergences, tree depth, energy for each model
-rstan::check_hmc_diagnostics(eval(m_weekly)$fit)
-
-# Check rhat and neff
-if (max(bayesplot::rhat(eval(m_weekly)), na.rm = T) >= 1.01)
-  print("Warning: Rhat >= 1.01")
-  
-if (min(bayesplot::neff_ratio(eval(m_weekly)), na.rm = T) <= 0.1)
-  print("Warning: ESS <= 0.1")
+# Check divergences, tree depth, energy
+rstan::check_hmc_diagnostics(eval(m_weekly_1)$fit)
 ```
 
-### Parameter estimates {#trendWeekly}
+```{r echo=FALSE}
+# Check rhat
+if(max(bayesplot::rhat(eval(m_weekly_1)), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  message("Rhat:")
+  message("Rhat values ok.")
+}
+
+# Check neff
+if(min(bayesplot::neff_ratio(eval(m_weekly_1)), na.rm = T) <= 0.1) {
+  message("Warning: ESS <= 0.1")
+} else{
+  message("ESS:")
+  message("Sufficient ESS.")
+}
+```
+
+#### Posterior predictive checks
+
+```{r message=FALSE, warning=FALSE, fig.width=9, fig.height=9}
+tibble(X     = LETTERS[1:2],
+       mu    = c(0, fixef(m_weekly_1)["experiment", 1]),
+       sigma = c(1, 1 / (exp(fixef(m_weekly_1)["disc_experiment", 1])))) %>% 
+  expand(nesting(X, mu, sigma),
+         y = seq(from = -5, to = 5, by = 0.1)) %>% 
+  mutate(d = dnorm(y, mu, sigma)) %>% 
+  
+  ggplot(aes(x = y, y = d, fill = X)) +
+  geom_area(alpha = 2/3) +
+  geom_vline(xintercept = fixef(m_weekly_1)[1:5, 1], linetype = 3, color = sl[9]) +
+  scale_fill_scico_d(palette = "lajolla", begin = .33, end = .67) +
+  scale_x_continuous(sec.axis = dup_axis(breaks = fixef(m_weekly_1)[1:5, 1] %>% as.double(), 
+                                         labels = parse(text = str_c("theta[", 1:5, "]")))) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  labs(title = "Underlying latent scale for our outome Q1, \n given experimental session X", x = NULL) +
+  theme_light() +
+  theme(axis.ticks.x.top = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+post <- posterior_samples(m_weekly_1)
+
+post <-
+  post %>%
+  select(`b_Intercept[1]`:`b_Intercept[5]`) %>%
+  mutate(iter = 1:n())
+
+means <-
+    post %>% 
+    summarise_at(vars(`b_Intercept[1]`:`b_Intercept[5]`), mean) %>% 
+    pivot_longer(everything(),
+                 values_to = "mean")
+
+post %>% 
+    gather(name, threshold, -iter) %>% 
+    group_by(iter) %>% 
+    mutate(theta_bar = mean(threshold)) %>% 
+    
+    ggplot(aes(x = threshold, y = theta_bar, color = name)) +
+    geom_vline(data = means,
+               aes(xintercept = mean, color = name),
+               linetype = 2) +
+    geom_point(alpha = 1/10) +
+    scale_color_scico_d(palette = "lajolla", begin = .25) +
+    ylab("mean threshold") +
+    theme_light() +
+    theme(legend.position = "none",
+          text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+p <- pp_check(m_weekly_1, type = "ecdf_overlay", nsamples = 50)
+
+p + theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r}
+p <- pp_check(m_weekly_1, type = "bars_grouped", nsamples = 100, 
+              group = "experiment") +
+  scale_x_continuous("y", breaks = 1:6) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  ggtitle("Data with posterior predictions",
+          subtitle = expression(list(italic(N[A])==298, italic(N[B])==158))) +
+  theme(legend.background = element_blank(),
+        legend.position = c(.9, .75))
+
+my_labels <- as_labeller(c("0" = "A", "1" = "B"))
+p + facet_wrap("group", labeller = my_labels) +
+  theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r}
+post %>% 
+    select(-iter) %>% 
+    mutate_all(.funs = ~pnorm(. ,0, 1)) %>% 
+    transmute(`p[Y==1]` = `b_Intercept[1]`,
+              `p[Y==2]` = `b_Intercept[2]` - `b_Intercept[1]`,
+              `p[Y==3]` = `b_Intercept[3]` - `b_Intercept[2]`,
+              `p[Y==4]` = `b_Intercept[4]` - `b_Intercept[3]`,
+              `p[Y==5]` = `b_Intercept[5]` - `b_Intercept[4]`,
+              
+              `p[Y==6]` = 1 - `b_Intercept[5]`) %>% 
+    set_names(1:6) %>% 
+    pivot_longer(everything(), names_to = "Y") %>% 
+    
+    ggplot(aes(x = value, y = Y)) +
+    stat_pointinterval(point_interval = mode_hdi, .width = .95, 
+                 fill = sl[4], color = sl[8], size = 1/2, height = 2.5) +
+    scale_x_continuous(expression(italic(p)*"["*Y==italic(i)*"]"),
+                       breaks = 0:5 / 5,
+                       expand = c(0, 0), limits = c(0, 1)) +
+  theme_light() +
+  theme(text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+p <- conditional_effects(m_weekly_1)
+
+plot(p, plot = FALSE)[[2]] +
+  xlab("Week number") + 
+  ylab("Question 1") +
+  scale_x_continuous(breaks= seq(1:12)) +
+  scale_y_continuous(breaks= c(3.5, 4, 4.5, 5)) +
+  theme_light() +
+  theme(text = element_text(size = 20))
+```
+
+### WHO-5: Q2 
+
+#### Prior predictive checks
+
+```{r warning=FALSE, message=FALSE}
+m_weekly_2 <- brm(
+  bf(WQ2_1_6 ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = weekly,
+  family = cumulative(probit),
+  sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0
+)
+
+pp_check(m_weekly_2,
+         type = "bars",
+         nsamples = 200)
+```
+
+The combinations of our priors are fairly uniform on the outcome space. Let's sample with data now.
+
+#### Sampling and diagnostics
+
+```{r warning=FALSE, message=FALSE}
+m_weekly_2 <- brm(
+  bf(WQ2_1_6 ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = weekly,
+  family = cumulative(probit),
+  # sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0,
+  control = list(adapt_delta = 0.99)
+)
+```
+
+Let's have a look at some diagnostics.
+
+```{r}
+# Check divergences, tree depth, energy
+rstan::check_hmc_diagnostics(eval(m_weekly_2)$fit)
+```
+
+```{r echo=FALSE}
+# Check rhat
+if(max(bayesplot::rhat(eval(m_weekly_2)), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  message("Rhat:")
+  message("Rhat values ok.")
+}
+
+# Check neff
+if(min(bayesplot::neff_ratio(eval(m_weekly_2)), na.rm = T) <= 0.1) {
+  message("Warning: ESS <= 0.1")
+} else{
+  message("ESS:")
+  message("Sufficient ESS.")
+}
+```
+
+#### Posterior predictive checks
+
+```{r message=FALSE, warning=FALSE, fig.width=9, fig.height=9}
+tibble(X     = LETTERS[1:2],
+       mu    = c(0, fixef(m_weekly_2)["experiment", 1]),
+       sigma = c(1, 1 / (exp(fixef(m_weekly_2)["disc_experiment", 1])))) %>% 
+  expand(nesting(X, mu, sigma),
+         y = seq(from = -5, to = 5, by = 0.1)) %>% 
+  mutate(d = dnorm(y, mu, sigma)) %>% 
+  
+  ggplot(aes(x = y, y = d, fill = X)) +
+  geom_area(alpha = 2/3) +
+  geom_vline(xintercept = fixef(m_weekly_2)[1:5, 1], linetype = 3, color = sl[9]) +
+  scale_fill_scico_d(palette = "lajolla", begin = .33, end = .67) +
+  scale_x_continuous(sec.axis = dup_axis(breaks = fixef(m_weekly_2)[1:5, 1] %>% as.double(), 
+                                         labels = parse(text = str_c("theta[", 1:5, "]")))) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  labs(title = "Underlying latent scale for our outome Q2, \n given experimental session X", x = NULL) +
+  theme_light() +
+  theme(axis.ticks.x.top = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+post <- posterior_samples(m_weekly_2)
+
+post <-
+  post %>%
+  select(`b_Intercept[1]`:`b_Intercept[5]`) %>%
+  mutate(iter = 1:n())
+
+means <-
+    post %>% 
+    summarise_at(vars(`b_Intercept[1]`:`b_Intercept[5]`), mean) %>% 
+    pivot_longer(everything(),
+                 values_to = "mean")
+
+post %>% 
+    gather(name, threshold, -iter) %>% 
+    group_by(iter) %>% 
+    mutate(theta_bar = mean(threshold)) %>% 
+    
+    ggplot(aes(x = threshold, y = theta_bar, color = name)) +
+    geom_vline(data = means,
+               aes(xintercept = mean, color = name),
+               linetype = 2) +
+    geom_point(alpha = 1/10) +
+    scale_color_scico_d(palette = "lajolla", begin = .25) +
+    ylab("mean threshold") +
+    theme_light() +
+    theme(legend.position = "none",
+          text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+p <- pp_check(m_weekly_2, type = "ecdf_overlay", nsamples = 50)
+
+p + theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r}
+p <- pp_check(m_weekly_2, type = "bars_grouped", nsamples = 100, 
+              group = "experiment") +
+  scale_x_continuous("y", breaks = 1:6) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  ggtitle("Data with posterior predictions",
+          subtitle = expression(list(italic(N[A])==298, italic(N[B])==158))) +
+  theme(legend.background = element_blank(),
+        legend.position = c(.9, .75))
+
+my_labels <- as_labeller(c("0" = "A", "1" = "B"))
+p + facet_wrap("group", labeller = my_labels) +
+  theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r}
+post %>% 
+    select(-iter) %>% 
+    mutate_all(.funs = ~pnorm(. ,0, 1)) %>% 
+    transmute(`p[Y==1]` = `b_Intercept[1]`,
+              `p[Y==2]` = `b_Intercept[2]` - `b_Intercept[1]`,
+              `p[Y==3]` = `b_Intercept[3]` - `b_Intercept[2]`,
+              `p[Y==4]` = `b_Intercept[4]` - `b_Intercept[3]`,
+              `p[Y==5]` = `b_Intercept[5]` - `b_Intercept[4]`,
+              
+              `p[Y==6]` = 1 - `b_Intercept[5]`) %>% 
+    set_names(1:6) %>% 
+    pivot_longer(everything(), names_to = "Y") %>% 
+    
+    ggplot(aes(x = value, y = Y)) +
+    stat_pointinterval(point_interval = mode_hdi, .width = .95, 
+                 fill = sl[4], color = sl[8], size = 1/2, height = 2.5) +
+    scale_x_continuous(expression(italic(p)*"["*Y==italic(i)*"]"),
+                       breaks = 0:5 / 5,
+                       expand = c(0, 0), limits = c(0, 1)) +
+  theme_light() +
+  theme(text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+p <- conditional_effects(m_weekly_2)
+
+plot(p, plot = FALSE)[[2]] +
+  xlab("Week number") + 
+  ylab("Question 2") +
+  scale_x_continuous(breaks= seq(1:12)) +
+  scale_y_continuous(breaks= c(3.5, 4, 4.5, 5)) +
+  theme_light() +
+  theme(text = element_text(size = 20))
+```
+
+### WHO-5: Q3 
+#### Prior predictive checks
+
+```{r warning=FALSE, message=FALSE}
+m_weekly_3 <- brm(
+  bf(WQ3_1_6 ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = weekly,
+  family = cumulative(probit),
+  sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0
+)
+
+pp_check(m_weekly_3,
+         type = "bars",
+         nsamples = 200)
+```
+
+The combinations of our priors are fairly uniform on the outcome space. Let's sample with data now.
+
+#### Sampling and diagnostics
+
+```{r warning=FALSE, message=FALSE}
+m_weekly_3 <- brm(
+  bf(WQ3_1_6 ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = weekly,
+  family = cumulative(probit),
+  # sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0,
+  control = list(adapt_delta = 0.99)
+)
+```
+
+Let's have a look at some diagnostics.
+
+```{r}
+# Check divergences, tree depth, energy
+rstan::check_hmc_diagnostics(eval(m_weekly_3)$fit)
+```
+
+```{r echo=FALSE}
+# Check rhat
+if(max(bayesplot::rhat(eval(m_weekly_3)), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  message("Rhat:")
+  message("Rhat values ok.")
+}
+
+# Check neff
+if(min(bayesplot::neff_ratio(eval(m_weekly_3)), na.rm = T) <= 0.1) {
+  message("Warning: ESS <= 0.1")
+} else{
+  message("ESS:")
+  message("Sufficient ESS.")
+}
+```
+
+#### Posterior predictive checks
+
+```{r message=FALSE, warning=FALSE, fig.width=9, fig.height=9}
+tibble(X     = LETTERS[1:2],
+       mu    = c(0, fixef(m_weekly_3)["experiment", 1]),
+       sigma = c(1, 1 / (exp(fixef(m_weekly_3)["disc_experiment", 1])))) %>% 
+  expand(nesting(X, mu, sigma),
+         y = seq(from = -5, to = 5, by = 0.1)) %>% 
+  mutate(d = dnorm(y, mu, sigma)) %>% 
+  
+  ggplot(aes(x = y, y = d, fill = X)) +
+  geom_area(alpha = 2/3) +
+  geom_vline(xintercept = fixef(m_weekly_3)[1:5, 1], linetype = 3, color = sl[9]) +
+  scale_fill_scico_d(palette = "lajolla", begin = .33, end = .67) +
+  scale_x_continuous(sec.axis = dup_axis(breaks = fixef(m_weekly_3)[1:5, 1] %>% as.double(), 
+                                         labels = parse(text = str_c("theta[", 1:5, "]")))) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  labs(title = "Underlying latent scale for our outome Q3, \n given experimental session X", x = NULL) +
+  theme_light() +
+  theme(axis.ticks.x.top = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+post <- posterior_samples(m_weekly_3)
+
+post <-
+  post %>%
+  select(`b_Intercept[1]`:`b_Intercept[5]`) %>%
+  mutate(iter = 1:n())
+
+means <-
+    post %>% 
+    summarise_at(vars(`b_Intercept[1]`:`b_Intercept[5]`), mean) %>% 
+    pivot_longer(everything(),
+                 values_to = "mean")
+
+post %>% 
+    gather(name, threshold, -iter) %>% 
+    group_by(iter) %>% 
+    mutate(theta_bar = mean(threshold)) %>% 
+    
+    ggplot(aes(x = threshold, y = theta_bar, color = name)) +
+    geom_vline(data = means,
+               aes(xintercept = mean, color = name),
+               linetype = 2) +
+    geom_point(alpha = 1/10) +
+    scale_color_scico_d(palette = "lajolla", begin = .25) +
+    ylab("mean threshold") +
+    theme_light() +
+    theme(legend.position = "none",
+          text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+p <- pp_check(m_weekly_3, type = "ecdf_overlay", nsamples = 50)
+
+p + theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r}
+p <- pp_check(m_weekly_3, type = "bars_grouped", nsamples = 100, 
+              group = "experiment") +
+  scale_x_continuous("y", breaks = 1:6) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  ggtitle("Data with posterior predictions",
+          subtitle = expression(list(italic(N[A])==298, italic(N[B])==158))) +
+  theme(legend.background = element_blank(),
+        legend.position = c(.9, .75))
+
+my_labels <- as_labeller(c("0" = "A", "1" = "B"))
+p + facet_wrap("group", labeller = my_labels) +
+  theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r}
+post %>% 
+    select(-iter) %>% 
+    mutate_all(.funs = ~pnorm(. ,0, 1)) %>% 
+    transmute(`p[Y==1]` = `b_Intercept[1]`,
+              `p[Y==2]` = `b_Intercept[2]` - `b_Intercept[1]`,
+              `p[Y==3]` = `b_Intercept[3]` - `b_Intercept[2]`,
+              `p[Y==4]` = `b_Intercept[4]` - `b_Intercept[3]`,
+              `p[Y==5]` = `b_Intercept[5]` - `b_Intercept[4]`,
+              
+              `p[Y==6]` = 1 - `b_Intercept[5]`) %>% 
+    set_names(1:6) %>% 
+    pivot_longer(everything(), names_to = "Y") %>% 
+    
+    ggplot(aes(x = value, y = Y)) +
+    stat_pointinterval(point_interval = mode_hdi, .width = .95, 
+                 fill = sl[4], color = sl[8], size = 1/2, height = 2.5) +
+    scale_x_continuous(expression(italic(p)*"["*Y==italic(i)*"]"),
+                       breaks = 0:5 / 5,
+                       expand = c(0, 0), limits = c(0, 1)) +
+  theme_light() +
+  theme(text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+p <- conditional_effects(m_weekly_3)
+
+plot(p, plot = FALSE)[[2]] +
+  xlab("Week number") + 
+  ylab("Question 3") +
+  scale_x_continuous(breaks= seq(1:12)) +
+  scale_y_continuous(breaks= c(3, 3.5, 4, 4.5, 5)) +
+  theme_light() +
+  theme(text = element_text(size = 20))
+```
+
+### WHO-5: Q4 
+#### Prior predictive checks
+
+```{r warning=FALSE, message=FALSE}
+m_weekly_4 <- brm(
+  bf(WQ4_1_6 ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = weekly,
+  family = cumulative(probit),
+  sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0
+)
+
+pp_check(m_weekly_4,
+         type = "bars",
+         nsamples = 200)
+```
+
+The combinations of our priors are fairly uniform on the outcome space. Let's sample with data now.
+
+#### Sampling and diagnostics
+
+```{r warning=FALSE, message=FALSE}
+m_weekly_4 <- brm(
+  bf(WQ4_1_6 ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = weekly,
+  family = cumulative(probit),
+  # sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0,
+  control = list(adapt_delta = 0.99)
+)
+```
+
+Let's have a look at some diagnostics.
+
+```{r}
+# Check divergences, tree depth, energy
+rstan::check_hmc_diagnostics(eval(m_weekly_4)$fit)
+```
+
+```{r echo=FALSE}
+# Check rhat
+if(max(bayesplot::rhat(eval(m_weekly_4)), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  message("Rhat:")
+  message("Rhat values ok.")
+}
+
+# Check neff
+if(min(bayesplot::neff_ratio(eval(m_weekly_4)), na.rm = T) <= 0.1) {
+  message("Warning: ESS <= 0.1")
+} else{
+  message("ESS:")
+  message("Sufficient ESS.")
+}
+```
+
+#### Posterior predictive checks
+
+```{r message=FALSE, warning=FALSE, fig.width=9, fig.height=9}
+tibble(X     = LETTERS[1:2],
+       mu    = c(0, fixef(m_weekly_4)["experiment", 1]),
+       sigma = c(1, 1 / (exp(fixef(m_weekly_4)["disc_experiment", 1])))) %>% 
+  expand(nesting(X, mu, sigma),
+         y = seq(from = -5, to = 5, by = 0.1)) %>% 
+  mutate(d = dnorm(y, mu, sigma)) %>% 
+  
+  ggplot(aes(x = y, y = d, fill = X)) +
+  geom_area(alpha = 2/3) +
+  geom_vline(xintercept = fixef(m_weekly_4)[1:5, 1], linetype = 3, color = sl[9]) +
+  scale_fill_scico_d(palette = "lajolla", begin = .33, end = .67) +
+  scale_x_continuous(sec.axis = dup_axis(breaks = fixef(m_weekly_4)[1:5, 1] %>% as.double(), 
+                                         labels = parse(text = str_c("theta[", 1:5, "]")))) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  labs(title = "Underlying latent scale for our outome Q4, \n given experimental session X", x = NULL) +
+  theme_light() +
+  theme(axis.ticks.x.top = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+post <- posterior_samples(m_weekly_4)
+
+post <-
+  post %>%
+  select(`b_Intercept[1]`:`b_Intercept[5]`) %>%
+  mutate(iter = 1:n())
+
+means <-
+    post %>% 
+    summarise_at(vars(`b_Intercept[1]`:`b_Intercept[5]`), mean) %>% 
+    pivot_longer(everything(),
+                 values_to = "mean")
+
+post %>% 
+    gather(name, threshold, -iter) %>% 
+    group_by(iter) %>% 
+    mutate(theta_bar = mean(threshold)) %>% 
+    
+    ggplot(aes(x = threshold, y = theta_bar, color = name)) +
+    geom_vline(data = means,
+               aes(xintercept = mean, color = name),
+               linetype = 2) +
+    geom_point(alpha = 1/10) +
+    scale_color_scico_d(palette = "lajolla", begin = .25) +
+    ylab("mean threshold") +
+    theme_light() +
+    theme(legend.position = "none",
+          text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+p <- pp_check(m_weekly_4, type = "ecdf_overlay", nsamples = 50)
+
+p + theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r}
+p <- pp_check(m_weekly_4, type = "bars_grouped", nsamples = 100, 
+              group = "experiment") +
+  scale_x_continuous("y", breaks = 1:6) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  ggtitle("Data with posterior predictions",
+          subtitle = expression(list(italic(N[A])==298, italic(N[B])==158))) +
+  theme(legend.background = element_blank(),
+        legend.position = c(.9, .75))
+
+my_labels <- as_labeller(c("0" = "A", "1" = "B"))
+p + facet_wrap("group", labeller = my_labels) +
+  theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r}
+post %>% 
+    select(-iter) %>% 
+    mutate_all(.funs = ~pnorm(. ,0, 1)) %>% 
+    transmute(`p[Y==1]` = `b_Intercept[1]`,
+              `p[Y==2]` = `b_Intercept[2]` - `b_Intercept[1]`,
+              `p[Y==3]` = `b_Intercept[3]` - `b_Intercept[2]`,
+              `p[Y==4]` = `b_Intercept[4]` - `b_Intercept[3]`,
+              `p[Y==5]` = `b_Intercept[5]` - `b_Intercept[4]`,
+              
+              `p[Y==6]` = 1 - `b_Intercept[5]`) %>% 
+    set_names(1:6) %>% 
+    pivot_longer(everything(), names_to = "Y") %>% 
+    
+    ggplot(aes(x = value, y = Y)) +
+    stat_pointinterval(point_interval = mode_hdi, .width = .95, 
+                 fill = sl[4], color = sl[8], size = 1/2, height = 2.5) +
+    scale_x_continuous(expression(italic(p)*"["*Y==italic(i)*"]"),
+                       breaks = 0:5 / 5,
+                       expand = c(0, 0), limits = c(0, 1)) +
+  theme_light() +
+  theme(text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+p <- conditional_effects(m_weekly_4)
+
+plot(p, plot = FALSE)[[2]] +
+  xlab("Week number") + 
+  ylab("Question 4") +
+  scale_x_continuous(breaks= seq(1:12)) +
+  scale_y_continuous(breaks= c(3, 3.5, 4, 4.5, 5)) +
+  theme_light() +
+  theme(text = element_text(size = 20))
+```
+
+### WHO-5: Q5 
+#### Prior predictive checks
+
+```{r warning=FALSE, message=FALSE}
+m_weekly_5 <- brm(
+  bf(WQ5_1_6 ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = weekly,
+  family = cumulative(probit),
+  sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0
+)
+
+pp_check(m_weekly_5,
+         type = "bars",
+         nsamples = 200)
+```
+
+The combinations of our priors are fairly uniform on the outcome space. Let's sample with data now.
+
+#### Sampling and diagnostics
+
+```{r warning=FALSE, message=FALSE}
+m_weekly_5 <- brm(
+  bf(WQ5_1_6 ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = weekly,
+  family = cumulative(probit),
+  # sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0,
+  control = list(adapt_delta = 0.99)
+)
+```
+
+Let's have a look at some diagnostics.
+
+```{r}
+# Check divergences, tree depth, energy
+rstan::check_hmc_diagnostics(eval(m_weekly_5)$fit)
+```
+
+```{r echo=FALSE}
+# Check rhat
+if(max(bayesplot::rhat(eval(m_weekly_5)), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  message("Rhat:")
+  message("Rhat values ok.")
+}
+
+# Check neff
+if(min(bayesplot::neff_ratio(eval(m_weekly_5)), na.rm = T) <= 0.1) {
+  message("Warning: ESS <= 0.1")
+} else{
+  message("ESS:")
+  message("Sufficient ESS.")
+}
+```
+
+#### Posterior predictive checks
+
+```{r message=FALSE, warning=FALSE, fig.width=9, fig.height=9}
+tibble(X     = LETTERS[1:2],
+       mu    = c(0, fixef(m_weekly_5)["experiment", 1]),
+       sigma = c(1, 1 / (exp(fixef(m_weekly_5)["disc_experiment", 1])))) %>% 
+  expand(nesting(X, mu, sigma),
+         y = seq(from = -5, to = 5, by = 0.1)) %>% 
+  mutate(d = dnorm(y, mu, sigma)) %>% 
+  
+  ggplot(aes(x = y, y = d, fill = X)) +
+  geom_area(alpha = 2/3) +
+  geom_vline(xintercept = fixef(m_weekly_5)[1:5, 1], linetype = 3, color = sl[9]) +
+  scale_fill_scico_d(palette = "lajolla", begin = .33, end = .67) +
+  scale_x_continuous(sec.axis = dup_axis(breaks = fixef(m_weekly_5)[1:5, 1] %>% as.double(), 
+                                         labels = parse(text = str_c("theta[", 1:5, "]")))) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  labs(title = "Underlying latent scale for our outome Q5, \n given experimental session X", x = NULL) +
+  theme_light() +
+  theme(axis.ticks.x.top = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+post <- posterior_samples(m_weekly_5)
+
+post <-
+  post %>%
+  select(`b_Intercept[1]`:`b_Intercept[5]`) %>%
+  mutate(iter = 1:n())
+
+means <-
+    post %>% 
+    summarise_at(vars(`b_Intercept[1]`:`b_Intercept[5]`), mean) %>% 
+    pivot_longer(everything(),
+                 values_to = "mean")
+
+post %>% 
+    gather(name, threshold, -iter) %>% 
+    group_by(iter) %>% 
+    mutate(theta_bar = mean(threshold)) %>% 
+    
+    ggplot(aes(x = threshold, y = theta_bar, color = name)) +
+    geom_vline(data = means,
+               aes(xintercept = mean, color = name),
+               linetype = 2) +
+    geom_point(alpha = 1/10) +
+    scale_color_scico_d(palette = "lajolla", begin = .25) +
+    ylab("mean threshold") +
+    theme_light() +
+    theme(legend.position = "none",
+          text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+p <- pp_check(m_weekly_5, type = "ecdf_overlay", nsamples = 50)
+
+p + theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r}
+p <- pp_check(m_weekly_5, type = "bars_grouped", nsamples = 100, 
+              group = "experiment") +
+  scale_x_continuous("y", breaks = 1:6) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  ggtitle("Data with posterior predictions",
+          subtitle = expression(list(italic(N[A])==298, italic(N[B])==158))) +
+  theme(legend.background = element_blank(),
+        legend.position = c(.9, .75))
+
+my_labels <- as_labeller(c("0" = "A", "1" = "B"))
+p + facet_wrap("group", labeller = my_labels) +
+  theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r}
+post %>% 
+    select(-iter) %>% 
+    mutate_all(.funs = ~pnorm(. ,0, 1)) %>% 
+    transmute(`p[Y==1]` = `b_Intercept[1]`,
+              `p[Y==2]` = `b_Intercept[2]` - `b_Intercept[1]`,
+              `p[Y==3]` = `b_Intercept[3]` - `b_Intercept[2]`,
+              `p[Y==4]` = `b_Intercept[4]` - `b_Intercept[3]`,
+              `p[Y==5]` = `b_Intercept[5]` - `b_Intercept[4]`,
+              `p[Y==6]` = 1 - `b_Intercept[5]`) %>% 
+    set_names(1:6) %>% 
+    pivot_longer(everything(), names_to = "Y") %>% 
+    
+    ggplot(aes(x = value, y = Y)) +
+    stat_pointinterval(point_interval = mode_hdi, .width = .95, 
+                 fill = sl[4], color = sl[8], size = 1/2, height = 2.5) +
+    scale_x_continuous(expression(italic(p)*"["*Y==italic(i)*"]"),
+                       breaks = 0:5 / 5,
+                       expand = c(0, 0), limits = c(0, 1)) +
+  theme_light() +
+  theme(text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+p <- conditional_effects(m_weekly_5)
+
+plot(p, plot = FALSE)[[2]] +
+  xlab("Week number") + 
+  ylab("Question 5") +
+  scale_x_continuous(breaks= seq(1:12)) +
+  scale_y_continuous(breaks= c(3, 3.5, 4, 4.5, 5)) +
+  theme_light() +
+  theme(text = element_text(size = 20))
+```
+
+### Model estimates
 
 ```{r, echo = FALSE, warning=FALSE, message=FALSE}
-
-p <- plot(conditional_effects(m_weekly), plot=FALSE)
-
-p1 <- p[[1]] +
-  ylim(1,4.53) +
+p <- plot(conditional_effects(m_weekly_1), plot=FALSE)
+p1 <- p[[2]] +
+  ylim(2.75,4.75) +
   ylab("Response") +
   scale_x_continuous(name="", 
                      limits = c(1,12), 
-                     breaks = seq(1,12, by = 2)) +
+                     breaks = c(1,6,12)) +
   ggtitle("Q1") +
   theme(text = element_text(size=16),
         plot.title = element_text(hjust = 0.5))
 
+p <- plot(conditional_effects(m_weekly_2), plot=FALSE)
 p2 <- p[[2]] +
-  ylim(1,4.53) +
+  ylim(2.75,4.75) +
   ylab("") +
   scale_x_continuous(name="", 
                      limits = c(1,12), 
-                     breaks = seq(1,12, by = 2)) +
+                     breaks = c(1,6,12)) +
   ggtitle("Q2") +
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank(),
@@ -377,12 +1170,13 @@ p2 <- p[[2]] +
         text = element_text(size=16),
         plot.title = element_text(hjust = 0.5))
 
-p3 <- p[[3]] +
-  ylim(1,4.53) +
+p <- plot(conditional_effects(m_weekly_3), plot=FALSE)
+p3 <- p[[2]] +
+  ylim(2.75,4.75) +
   ylab("") +
   scale_x_continuous(name="Week", 
                      limits = c(1,12), 
-                     breaks = seq(1,12, by = 2)) +
+                     breaks = c(1,6,12)) +
   ggtitle("Q3") +
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank(),
@@ -390,12 +1184,13 @@ p3 <- p[[3]] +
         text = element_text(size=16),
         plot.title = element_text(hjust = 0.5))
 
-p4 <- p[[4]] +
-  ylim(1,4.53) +
+p <- plot(conditional_effects(m_weekly_4), plot=FALSE)
+p4 <- p[[2]] +
+  ylim(2.75,4.75) +
   ylab("") +
   scale_x_continuous(name="", 
                      limits = c(1,12), 
-                     breaks = seq(1,12, by = 2)) +
+                     breaks = c(1,6,12)) +
   ggtitle("Q4") +
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank(),
@@ -403,120 +1198,274 @@ p4 <- p[[4]] +
         text = element_text(size=16),
         plot.title = element_text(hjust = 0.5))
 
-p5 <- p[[5]] +
-  ylim(1,4.53) +
+p <- plot(conditional_effects(m_weekly_5), plot=FALSE)
+p5 <- p[[2]] +
+  ylim(2.75,4.75) +
   ylab("") +
   scale_x_continuous(name="", 
                      limits = c(1,12), 
-                     breaks = seq(1,12, by = 2)) +
+                     breaks = c(1,6,12)) +
   ggtitle("Q5") +
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank(),
         axis.title.y = element_blank(),
         text = element_text(size=16),
         plot.title = element_text(hjust = 0.5))
-  
-
 
 (p1 + p2 + p3 + p4 + p5) + 
   plot_layout(nrow = 1)
 ```
 
-Some interesting trends here.
+## `daily` data
 
-## `daily` data {#daily}
-
-### Prior and posterior predictive checks
-
-Let's redo this, but this time for the `daily` dataset.
+Recall, the daily data set consists of the following variables,
 
 ```{r}
-daily$ID <- as.factor(daily$ID)
-daily <- daily[order(daily$ID),]
-daily$Seq <- sequence(tabulate(daily$ID))
-# drop column 2:3
-daily <- daily[-c(2:3)]
+str(daily)
+```
+
+where `ID` is the subject, `resp` is the response (Likert $1,\ldots,10$), `experiment` is the session the subject belongs to, and, finally, `Seq` is the order each subject answered the question.
+
+The response, `resp`, when plotted, looks like this,
+
+```{r}
+hist(daily$resp, main = "Histogram of responses to daily question")
+```
+
+and the maximum and minimum number of responses (days) a subject provided was,
+
+```{r}
+max(daily$Seq)
+min(daily$Seq)
+```
+
+If we take a random sample of $32$ subjects we will see how complicated it will be to analyze this. For the question we have in the daily survey instrument, for each of the $32$ subjects, we've plotted answers (dots) they provided on a $1,\ldots,10$ Likert scale; then we've drawn a linear model for what we've got.
+
+```{r fig.width=9, fig.height=9}
+daily |>
+  filter(ID %in% sample(x = max(daily$ID), size = 32)) %>%
+  ggplot(aes(x = Seq, y = resp)) +
+  geom_point() +
+  scale_x_continuous(breaks = c(1,20,40,60,80)) +
+  scale_y_continuous(breaks = c(1,5,10)) +
+  stat_smooth(method = "lm", se = F) +
+  ylab("Daily question") +
+  xlab("Days") +
+  theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20)) +
+  facet_wrap( ~ ID, ncol = 4)
+```
+
+
+### Prior predictive checks
+
+We want to model the daily instrument and how it varies over time $t$ (in our case the sequence variable `Seq`). In this case, $t$ will be modeled using a Gaussian Process and then each individual in the dataset will be modeled using a varying intercept (in addition we'll model $\sigma$, called `disc` below, for each experimental session). 
+
+An information theoretical comparison using LOO showed that a model with varying intercepts for each individual had considerably better relative out of sample performance with $\Delta\text{elpd} = -77.1$ and $\Delta\text{SE}=11.2$, i.e., assuming a $99\%$ $z$-score of $2.576$ we have $\text{CI}_{95\%}[-106;-48]$.
+
+```{r warning=FALSE, message=FALSE}
+m_daily <- brm(
+  bf(resp ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = daily,
+  family = cumulative(probit),
+  sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0, control = list(adapt_delta=0.95)
+)
+
+pp_check(m_daily,
+         type = "bars",
+         nsamples = 200)
+```
+
+The combinations of our priors are fairly uniform on the outcome space. Let's sample with data now.
+
+### Sampling and diagnostics
+
+```{r warning=FALSE, message=FALSE}
+m_daily <- brm(
+  bf(resp ~ 1 + gp(Seq) + experiment + (1 | ID)) +
+    lf(disc ~ 0 + experiment, cmc = FALSE),
+  data = daily,
+  family = cumulative(probit),
+  # sample_prior = "only",
+  prior = c(
+    prior(normal(0, 2.5), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(normal(0, 1), class = b, dpar = disc),
+    prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
+    prior(weibull(2, 1), class = sdgp),
+    prior(weibull(2, 1), class = sd)
+  ),
+  silent = TRUE, refresh = 0, init = 0,
+  control = list(adapt_delta = 0.99, max_treedepth=12)
+)
+```
+
+Let's have a look at some diagnostics.
+
+```{r}
+# Check divergences, tree depth, energy
+rstan::check_hmc_diagnostics(eval(m_daily)$fit)
+```
+
+```{r echo=FALSE}
+# Check rhat
+if(max(bayesplot::rhat(eval(m_daily)), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  message("Rhat:")
+  message("Rhat values ok.")
+}
+
+# Check neff
+if(min(bayesplot::neff_ratio(eval(m_daily)), na.rm = T) <= 0.1) {
+  message("Warning: ESS <= 0.1")
+} else{
+  message("ESS:")
+  message("Sufficient ESS.")
+}
+```
+
+### Posterior predictive checks
+
+```{r message=FALSE, warning=FALSE, fig.width=9, fig.height=9}
+tibble(X     = LETTERS[1:2],
+       mu    = c(0, fixef(m_daily)["experiment", 1]),
+       sigma = c(1, 1 / (exp(fixef(m_daily)["disc_experiment", 1])))) %>% 
+  expand(nesting(X, mu, sigma),
+         y = seq(from = -5, to = 5, by = 0.1)) %>% 
+  mutate(d = dnorm(y, mu, sigma)) %>% 
+  
+  ggplot(aes(x = y, y = d, fill = X)) +
+  geom_area(alpha = 2/3) +
+  geom_vline(xintercept = fixef(m_daily)[1:9, 1], linetype = 3, color = sl[9]) +
+  scale_fill_scico_d(palette = "lajolla", begin = .33, end = .67) +
+  scale_x_continuous(sec.axis = dup_axis(breaks = fixef(m_daily)[1:9, 1] %>% as.double(), 
+                                         labels = parse(text = str_c("theta[", 1:9, "]")))) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  labs(title = "Underlying latent scale for our outome, \n given experimental session X", x = NULL) +
+  theme_light() +
+  theme(axis.ticks.x.top = element_blank(),
+        text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+post <- posterior_samples(m_daily)
+
+post <-
+  post %>%
+  select(`b_Intercept[1]`:`b_Intercept[9]`) %>%
+  mutate(iter = 1:n())
+
+means <-
+    post %>% 
+    summarise_at(vars(`b_Intercept[1]`:`b_Intercept[9]`), mean) %>% 
+    pivot_longer(everything(),
+                 values_to = "mean")
+
+post %>% 
+    gather(name, threshold, -iter) %>% 
+    group_by(iter) %>% 
+    mutate(theta_bar = mean(threshold)) %>% 
+    
+    ggplot(aes(x = threshold, y = theta_bar, color = name)) +
+    geom_vline(data = means,
+               aes(xintercept = mean, color = name),
+               linetype = 2) +
+    geom_point(alpha = 1/10) +
+    scale_color_scico_d(palette = "lajolla", begin = .25) +
+    ylab("mean threshold") +
+    theme_light() +
+    theme(legend.position = "none",
+          text = element_text(size = 20))
+```
+
+```{r message=FALSE, warning=FALSE}
+p <- pp_check(m_daily, type = "ecdf_overlay", nsamples = 50)
+
+p + theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
 ```
 
 ```{r}
-daily[rowSums(is.na(daily)) > 0,]
+p <- pp_check(m_daily, type = "bars_grouped", nsamples = 100, 
+              group = "experiment") +
+  scale_x_continuous("y", breaks = 1:10) +
+  scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
+  ggtitle("Data with posterior predictions",
+          subtitle = expression(list(italic(N[A])==1024, italic(N[B])==622))) +
+  theme(legend.background = element_blank(),
+        legend.position = c(.9, .75))
 
-# so some have no response recorded. Let's remove
-daily <- daily[complete.cases(daily), ]
+my_labels <- as_labeller(c("0" = "A", "1" = "B"))
+p + facet_wrap("group", labeller = my_labels) +
+  theme_light() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20))
 ```
 
-```{r daily-pri, warning=FALSE, message=FALSE}
-p <- get_prior(resp ~ 1 + gp(Seq) + (1 | ID), 
-               data = daily, family = cumulative)
-
-p$prior[c(2:10)] <- "normal(0,2)"
-p$prior[12] <- "inv_gamma(1.6, 0.1)"
-p$prior[c(14:15,17)] <- "weibull(2,1)"
-
-m_daily <- brm(resp ~ 1 + gp(Seq) + (1 | ID), 
-               data = daily, 
-               family = cumulative,
-               prior = p,
-               sample_prior = "only",
-               control = list(adapt_delta = 0.9),
-               silent = TRUE, 
-               refresh = 0)
-
-pp_check(m_daily, type = "bars", nsamples = 200)
-```
-
-```{r sample-daily, warning=FALSE, message=FALSE}
-m_daily <- brm(resp ~ 1 + gp(Seq) + (1 | ID), 
-               data = daily, 
-               family = cumulative,
-               prior = p,
-               control = list(adapt_delta = 0.95),
-               silent = TRUE, 
-               refresh = 0)
-
-pp_check(m_daily, type = "bars", nsamples = 200)
-```
-
-### Diagnostics
+### Model estimates
 ```{r}
-rstan::check_hmc_diagnostics(m_daily$fit)
-
-# check rhat and ESS
-if(max(bayesplot::rhat(eval(m_daily)), na.rm=T) >= 1.01) 
-  print("Warning: Rhat >=1.01")
-
-if(min(bayesplot::neff_ratio(eval(m_daily)), na.rm=T) <= 0.1) 
-  print("Warning: ESS <=0.1")
+post %>% 
+    select(-iter) %>% 
+    mutate_all(.funs = ~pnorm(. ,0, 1)) %>% 
+    transmute(`p[Y==1]` = `b_Intercept[1]`,
+              `p[Y==2]` = `b_Intercept[2]` - `b_Intercept[1]`,
+              `p[Y==3]` = `b_Intercept[3]` - `b_Intercept[2]`,
+              `p[Y==4]` = `b_Intercept[4]` - `b_Intercept[3]`,
+              `p[Y==5]` = `b_Intercept[5]` - `b_Intercept[4]`,
+              `p[Y==6]` = `b_Intercept[6]` - `b_Intercept[5]`,
+              `p[Y==7]` = `b_Intercept[7]` - `b_Intercept[6]`,
+              `p[Y==8]` = `b_Intercept[8]` - `b_Intercept[7]`,
+              `p[Y==9]` = `b_Intercept[9]` - `b_Intercept[8]`,
+              `p[Y==10]` = 1 - `b_Intercept[9]`) %>% 
+    set_names(1:10) %>% 
+    pivot_longer(everything(), names_to = "Y") %>% 
+    
+    ggplot(aes(x = value, y = Y)) +
+    stat_pointinterval(point_interval = mode_hdi, .width = .95, 
+                 fill = sl[4], color = sl[8], size = 1/2, height = 2.5) +
+    scale_x_continuous(expression(italic(p)*"["*Y==italic(i)*"]"),
+                       breaks = 0:5 / 5,
+                       expand = c(0, 0), limits = c(0, 1)) +
+  scale_y_discrete(limits = factor(seq(1:10))) +
+  theme_light() +
+  theme(text = element_text(size = 20))
 ```
-
-### Parameter estimates {#trendDaily}
-What does the trend look like?
 
 ```{r, warning=FALSE, message=FALSE}
 #pdf("daily.pdf", width=7.5/2.54, height=9.49/2.54)
 
-plot(conditional_effects(m_daily), plot = FALSE)[[1]] +
+plot(conditional_effects(m_daily), plot = FALSE)[[2]] +
   xlim(1,84) +
-  ylim(1,8) +
   ylab("Response") +
   scale_x_continuous(name="Day", 
                      limits = c(1,84), 
-                     breaks = seq(0,80, by = 10)) +
+                     breaks = c(1,seq(10,80, by = 10),84)) +
   scale_y_continuous(name="Response", 
-                     limits = c(1,8),
-                     breaks = seq(1,8)) +
+                     limits = c(6,8),
+                     breaks = seq(6,8)) +
   theme(text = element_text(size=16))
 
 #dev.off()
 ```
 
-There might be a difference here, but we can't possibly see it since the uncertainty is too large.
-
 ## Multivariate models with temporal variable
 
-We want a model that uses personal data (e.g., age and gender) as predictors. The idea is to later see if any of the predictors have predictive capacity for our six different survey instruments. 
+We want a model that uses personal data (e.g., age and gender) as predictors. The idea is to later see if any of the predictors have predictive capacity for the different survey instruments. 
 
-Design models with predictors from `personal` data, together with our indicator $t$ for time, and a varying intercept `ID` that varies depending on subject.
+Design models with predictors from `personal` data, together with our indicator `t` for time, `experiment` for experimental session, and a varying intercept `ID` that varies depending on subject.
 
 ### Prior and posterior predictive checks
 
@@ -543,28 +1492,30 @@ bf1 <- bf(mvbind(MAASQ1_1_6,
                  MAASQ13_1_6,
                  MAASQ14_1_6,
                  MAASQ15_1_6) ~ 
-            1 + Age + Gender_0_1 + Occupation + Living_1_4 + t + (1 |c| ID))
+            1 + Age + Gender_0_1 + Occupation_0_1 + Living_1_4 + t + (1 |e| Experiment_1_2) + (1 |c| ID))
 
 # Prior predictive checks have been conducted and the probability mass 
 # is distributed evenly on the outcome space
-p <- get_prior(bf1, data=d, family=cumulative) %>%
+p <- get_prior(bf1, data=d, family=cumulative(probit)) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
   mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
   mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
   mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
-  
-         
+
 m_maas <- brm(bf1,
-    family = cumulative,
+    family = cumulative(probit),
     data = d,
     prior = p,
     #sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
+    iter = 5e3,
+    inits = "0",
+    control = list(adapt_delta=0.99),
     refresh = 0)
 
 # use the below to do prior and posterior predictive checks
 # change resp to the response variable you want to check 
-# pp_check(m_maas, resp = "MAASQ116", type = "bars, nsamples = 250) 
+pp_check(m_maas, resp = "MAASQ116", type = "bars", nsamples = 250) 
 ```
 
 ```{r m-spane, echo=TRUE, warning=FALSE, message=FALSE}
@@ -586,18 +1537,21 @@ bf1 <- bf(mvbind(SPANEQ1_1_5,
                  SPANEQ10_1_5,
                  SPANEQ11_1_5,
                  SPANEQ12_1_5) ~ 
-            1 + Age + Gender_0_1 + Occupation + Living_1_4 + t + (1 |c| ID))
+            1 + Age + Gender_0_1 + Occupation_0_1 + Living_1_4 + t + (1 |e| Experiment_1_2) + (1 |c| ID))
 
-p <- get_prior(bf1, data=d, family=cumulative) %>%
+p <- get_prior(bf1, data=d, family=cumulative(probit)) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
   mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
   mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
   mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
 
 m_spane <- brm(bf1,
-    family = cumulative,
+    family = cumulative(probit),
     data = d,
     prior = p,
+    init = "0",
+    iter = 5e3,
+    control = list(adapt_delta=0.99),
     # sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
     refresh = 0)
@@ -622,18 +1576,21 @@ bf1 <- bf(mvbind(PWBQ1_1_7,
                  PWBQ6_1_7,
                  PWBQ7_1_7,
                  PWBQ8_1_7) ~ 
-            1 + Age + Gender_0_1 + Occupation + Living_1_4 + t + (1 |c| ID))
+            1 + Age + Gender_0_1 + Occupation_0_1 + Living_1_4 + t + (1 |e| Experiment_1_2) + (1 |c| ID))
 
-p <- get_prior(bf1, data=d, family=cumulative) %>%
+p <- get_prior(bf1, data=d, family=cumulative(probit)) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
   mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
   mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
   mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
 
 m_pwb <- brm(bf1,
-    family = cumulative,
+    family = cumulative(probit),
     data = d,
     prior = p,
+    init = "0",
+    control = list(adapt_delta=0.95),
+    iter = 5e3,
     # sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
     refresh = 0)
@@ -670,7 +1627,7 @@ bf1 <- bf(mvbind(PSTQ1_0_1,
                  PSTQ20_0_1,
                  PSTQ21_0_1,
                  PSTQ22_0_1) ~ 
-            1 + Age + Gender_0_1 + Occupation + Living_1_4 + t + (1 |c| ID))
+            1 + Age + Gender_0_1 + Occupation_0_1 + Living_1_4 + t + (1 |e| Experiment_1_2) + (1 |c| ID))
 
 p <- get_prior(bf1, data=d, family=bernoulli) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
@@ -697,8 +1654,8 @@ m_pst <- brm(bf1,
 #
 ################################################################################
 # NOTE: the first two questions can be analyzed as Bernoulli 
-bf1 <- bf(mvbind(#SEQ114, # this and the next outcome only has two categories
-                 #SEQ214,
+bf1 <- bf(mvbind(SEQ1_1_4, # this and the next outcome only has two categories
+                 SEQ2_1_4,
                  SEQ3_1_4,
                  SEQ4_1_4,
                  SEQ5_1_4,
@@ -707,45 +1664,27 @@ bf1 <- bf(mvbind(#SEQ114, # this and the next outcome only has two categories
                  SEQ8_1_4,
                  SEQ9_1_4,
                  SEQ10_1_4) ~
-            1 + Age + Gender_0_1 + Occupation + Living_1_4 + t + (1 |c| ID))
+            1 + Age + Gender_0_1 + Occupation_0_1 + Living_1_4 + t + (1 |e| Experiment_1_2) + (1 |c| ID))
 
-p <- get_prior(bf1, data=d, family=cumulative) %>%
+p <- get_prior(bf1, data=d, family=cumulative(probit)) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
   mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
   mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
   mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
 
 m_se <- brm(bf1,
-    family = cumulative,
+    family = cumulative(probit),
     data = d,
     prior = p,
+    init = "0",
+    control = list(adapt_delta = 0.99),
+    iter = 5e3,
     # sample_prior = "only",
     silent = TRUE,
     refresh = 0)
 
-# pp_check(m_seq, resp = "SEQ314", type = "bars", nsamples = 250) 
+# pp_check(m_se, resp = "SEQ314", type = "bars", nsamples = 250) 
 
-# next take the two questions that only had answers on two levels
-bf1 <- bf(mvbind(SEQ1_1_4,
-                 SEQ2_1_4) ~
-            1 + Age + Gender_0_1 + Occupation + Living_1_4 + t + (1 |c| ID))
-
-p <- get_prior(bf1, data=d, family=bernoulli) %>%
-  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
-  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
-  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
-  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
-
-m_se2 <- brm(bf1,
-    family = bernoulli,
-    data = d,
-    prior = p,
-    # sample_prior = "only",
-    silent = TRUE,
-    refresh = 0
-    )
-
-# pp_check(m_seq2, resp = "SEQ114", type = "bars", nsamples = 250) 
 ```
 
 ```{r m-pph, echo=TRUE, warning=FALSE, message=FALSE}
@@ -754,7 +1693,6 @@ m_se2 <- brm(bf1,
 # PPHQ
 #
 ################################################################################
-
 
 bf1 <- bf(mvbind(PPHQ1_1_5,
                  PPHQ2_1_5,
@@ -768,73 +1706,111 @@ bf1 <- bf(mvbind(PPHQ1_1_5,
                  PPRQ3_1_10,
                  PPOQ1_1_7
                  ) ~ 
-            1 + Age + Gender_0_1 + Occupation + Living_1_4 + t + (1 |c| ID))
+            1 + Age + Gender_0_1 + Occupation_0_1 + Living_1_4 + t + (1 |e| Experiment_1_2) + (1 |c| ID))
 
-p <- get_prior(bf1, data=d, family=cumulative) %>%
+p <- get_prior(bf1, data=d, family=cumulative(probit)) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
   mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
   mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
   mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
 
 m_pph <- brm(bf1,
-    family = cumulative,
+    family = cumulative(probit),
     data = d,
     prior = p,
+    init = "0",
+    iter = 1e4,
+    control =list(adapt_delta=0.96),
     # sample_prior = "only",
     silent = TRUE,
     refresh = 0)
 
-# pp_check(m_pphq, resp = "PPHQ115", type = "bars", nsamples = 250) 
+# pp_check(m_pph, resp = "PPHQ115", type = "bars", nsamples = 250) 
 ```
 
-So we have now sampled seven models. For each instrument we have one multivariate model ($>1$ outcome), where we also estimate the correlation between the outcome given the subject's ID. 
-
-Most of the models are using, as we've already discussed, the Cumulative family. However, in a few cases we use the Bernoulli family. First, we use it for outcomes that were binary (i.e., Yes/No outcomes). Second, we use it for two questions in the SE instrument ($\mathcal{M}_{\text{SE}2}$), which only had empirical outcomes on two levels. 
+So we have now sampled a number of models ($6$), i.e., for each instrument we have one multivariate model ($>1$ outcome), where we also estimate the correlation between the outcome given the subject's ID. 
 
 Before we put any trust in these models we need to check a number of diagnostics.
 
 ### Diagnostics
 
-First, we check general HMC diagnostics. Second, we check that $\widehat{R} \leq 1.01$ and that the effective sample size (ESS) is $\geq 0.2$.
+First, we check general HMC diagnostics. Second, we check that $\widehat{R} \leq 1.01$.
 
-```{r diagnostics}
-models <- list(m_maas, m_spane, m_pwb, m_pst, m_se, m_se2, m_pph)
+```{r diagnostics, echo = FALSE}
+# ugly as shit but there's a bug in R's lazyLoadDBinsertVariable 
+# so eval w/ for loop doesn't work...
 
-# Check divergences, tree depth, energy for each model
-for(m in models) {
-  rstan::check_hmc_diagnostics(eval(m)$fit)
+# Check divergences, tree depth, energy, and rhat  
+# for each model
+rstan::check_hmc_diagnostics(m_maas$fit)
+if (max(bayesplot::rhat(m_maas), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  cat("Rhat:\n")
+  message("Rhat values ok.")
 }
 
-# Check rhat and neff
-for (m in models) {
-  if (max(bayesplot::rhat(eval(m)), na.rm = T) >= 1.01)
-    # diag in corr matrix always NA
-    print("Warning: Rhat >= 1.01")
-  
-  if (min(bayesplot::neff_ratio(eval(m)), na.rm = T) <= 0.1)
-    print("Warning: ESS <= 0.1")
+rstan::check_hmc_diagnostics(m_spane$fit)
+if (max(bayesplot::rhat(m_spane), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  cat("Rhat:\n")
+  message("Rhat values ok.")
+}
+
+rstan::check_hmc_diagnostics(m_pwb$fit)
+if (max(bayesplot::rhat(m_pwb), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  cat("Rhat:\n")
+  message("Rhat values ok.")
+}
+
+rstan::check_hmc_diagnostics(m_pst$fit)
+if (max(bayesplot::rhat(m_pst), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  cat("Rhat:\n")
+  message("Rhat values ok.")
+}
+
+rstan::check_hmc_diagnostics(m_se$fit)
+if (max(bayesplot::rhat(m_se), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  cat("Rhat:\n")
+  message("Rhat values ok.")
+}
+
+rstan::check_hmc_diagnostics(m_pph$fit)
+if (max(bayesplot::rhat(m_pph), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  cat("Rhat:\n")
+  message("Rhat values ok.")
 }
 ```
 
-Hamiltonian Monte Carlo diagnostics indicate all is well (one can also check traceplots for all models, i.e., using `plot(model)`).
+
+Hamiltonian Monte Carlo diagnostics indicate all is well (we've also checked traceplots, effective sample sizes, and other diagnostics for all models).
 
 ### Parameter estimates
 
 First, let's summarize what we have so far:
 
-1. Weekly trends modeled with Gaussian Process (results in Sect. \@ref(trendWeekly).
-2. Daily trend modeled with Gaussian Process (results in Sect. \@ref(trendDaily)). We've also shown conditional effects of `gender` since it is the main driver for differences we're seeing.
-3. Seven multivariate models with temporal variable to analyze entry/exit. Additionally, we have an eight model for analyzing two questions (Q1 and Q2) in the SE instrument (using a Bernoulli likelihood).
+1. Weekly trends modeled with Gaussian Process.
+2. Daily trend modeled with Gaussian Process. 
+3. Six multivariate models with the temporal variable to analyze entry/exit. 
 
-We can now investigate which, if any, parameters are significant on the 95%-level for the third item in the list, i.e., for each model, and each question, plot all parameters. Any parameters that are significant could warrant further analysis.
+We can now investigate which, if any, parameters are significant on the 95%-level for the third item in the list, i.e., for each model, and each question, plot all parameters. Any parameters that are significant on the 95%-level could warrant further analysis, and in particular a connection to the qualitative analysis.
 
 For each model we first analyze the temporal variable $t$. Then we analyze the rest of the $\beta$ parameters. Finally, where appropriate we look at the conditional effects. All densities we plot are limited to 95% probability mass, while the 50% probability mass is shaded around a vertical line, which is the median.
 
 ```{r class.source="bg-danger", class.output="bg-warning", eval=FALSE}
-In short, any density that does not cross zero (the vertical line) is potentially a significant effect.
+In short, any density that does not cross zero (the vertical line) is an effect of interest.
 ```
 
-Each of these models used a sample size of $n=$ `r nrow(m_maas$data)` for sampling.
+Each of the following models used a sample size of $n=$ `r nrow(m_maas$data)` for sampling.
 
 #### Mindful attention awareness scale (MAAS)
 
@@ -846,7 +1822,7 @@ mcmc_areas(m_maas, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to MAAS questions")))
 ```
 
-For Questions $1$--$3$, $8$, and $14$ the parameter $t$ is negative. In short, the respondents answered with lower responses at $t_1$ than at $t_0$ for these questions. 
+For Questions $1$--$8$, $11$--$12$, and $14$ the parameter $t$ is negative. In short, the respondents answered with lower responses at $t_1$ than at $t_0$ for these questions.
 
 The questions were phrased in the following way:
 
@@ -862,73 +1838,29 @@ If we look at each unique parameter, in each question, can we see which, if any,
 mcmc_areas(m_maas, prob = 0.5, prob_outer = 0.95, regex_pars = "Age$")
 ```
 
-Much variance makes the estimates uncertain and, ultimately, no parameter is significant (not even for Q7, even though it looks that way).
+Much variance makes the estimates uncertain and, ultimately, no parameter is significant.
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_maas, prob = 0.5, prob_outer = 0.95, regex_pars = "Gender_0_1$")
 ```
 
-Two notable parameters, first for Q1 (woman/transwoman answers significantly higher than man/transman), while in Q6 man/transman answers significantly lower (i.e., "I forget a person's name almost as soon as I've been told it for the first time").
-
-Let's see how a conditional effect for these two parameters look like.
-```{r, echo=FALSE, warning=FALSE}
-p <- plot(conditional_effects(m_maas, effects = "Gender_0_1", resp = "MAASQ116"), plot=FALSE)
-
-p[[1]] +
-  ylim(1,5) +
-  scale_x_continuous(name = "Gender", 
-                     breaks = c(1.0,2.0), 
-                     labels = c("man/\n transman", "woman/\n transwoman")) +
-  ylab("Response") + ggtitle("Q1")
-
-p <- plot(conditional_effects(m_maas, effects = "Gender_0_1", resp = "MAASQ616"), plot=FALSE)
-
-p[[1]] +
-  ylim(1,5) +
-  scale_x_continuous(name = "Gender", 
-                     breaks = c(1.0,2.0), 
-                     labels = c("man/\n transman", "woman/\n transwoman")) +
-  ylab("Response") + ggtitle("Q6")
-```
-
+And the same applies to gender. How about occupation status?
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
-mcmc_areas(m_maas, prob = 0.5, prob_outer = 0.95, regex_pars = "Occupation$")
+mcmc_areas(m_maas, prob = 0.5, prob_outer = 0.95, regex_pars = "Occupation_0_1$")
 ```
 
-Occupation status (student/non-student) does not have any effect (even though it is close for Q3). Let's, finally, look at living conditions before we turn our attention to the next instrument.
+Occupation status (student/non-student) has an effect for Q2. Let's look at living conditions before we turn our attention to the next instrument.
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
-mcmc_areas(m_maas, prob = 0.5, prob_outer = 0.95, regex_pars = c("sharedhousing$", "withapartner", "withmyfamily"))
+mcmc_areas(m_maas, prob = 0.5, prob_outer = 0.95, regex_pars = c("Living_1_4"))
 ```
 
-For Q15, if living with a partner (i.e., "I snack without being aware that I'm eating"), the respondent will respond significantly higher. The same for Q13 (i.e., "I find myself preoccupied with the future or the past"), if the respondent lives with their family.
-
-Let's plot these two as conditional effects. Below we plot each significant effect together with the other categories in this question. The significant effect is annotated in blue.
-
-```{r, echo = FALSE, warning=FALSE}
-p <- plot(conditional_effects(m_maas, effects = "Living_1_4", resp = "MAASQ1316"), plot = FALSE)
-
-p1 <- p[[1]] +
-  xlab("Q13") +
-  ylab("Response") +
-  annotate("rect", xmin = 3.8, xmax = 4.2, ymin = 3, ymax = 5.5,
-  alpha = .2, fill ="blue") +
-  theme(text = element_text(size = 16))
-  
-p <- plot(conditional_effects(m_maas, effects = "Living_1_4", resp = "MAASQ1516"), plot=FALSE)
-
-p2 <- p[[1]] +
-  xlab("Q15") +
-  ylab("Response") +
-  annotate("rect", xmin = 2.8, xmax = 3.2, ymin = 1.7, ymax = 3.8,
-  alpha = .2, fill ="blue") +
-  theme(text = element_text(size = 16))
-
-(p1 + p2)
-```
+Questions $1$--$3$ are significant, as are Q$8$, and Q$12$.
 
 #### Scale of positive and negative experience (SPANE)
+
+The model estimated `r length(brms::parnames(m_spane))` parameters.
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_spane, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
@@ -936,9 +1868,11 @@ mcmc_areas(m_spane, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to SPANE questions")))
 ```
 
-No significant $t$ parameters.
+All $t$ parameters are significant (either negative or positive). If a parameter is positive (i.e., to the right of zero), then subjects responded with higher values at $t_1$. 
 
 #### Personal well-being index (PWB)
+
+The model estimated `r length(brms::parnames(m_pwb))` parameters.
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_pwb, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
@@ -946,16 +1880,11 @@ mcmc_areas(m_pwb, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to PWB questions")))
 ```
 
-For Q4 ("I actively contribute to the happiness and well-being of others") the respondents gave higher responses at $t_1$. Let's look at the parameters for that question.
-
-```{r, echo=FALSE, warning=FALSE, message=FALSE}
-mcmc_areas(m_pwb, regex_pars = c("^b_PWBQ417_[A-H]","^b_PWBQ417_[J-Z]")) + 
-  ggtitle("Question 4")
-```
-
-No parameters influencing that question to a larger extent. In short, respondents, no matter their age, etc., responded higher at $t_1$ for Q4.
+All $t$ parameters are significant, i.e., higher values at $t_1$, except for Q$3$.
 
 #### Positive thinking (PST)
+
+The model estimated `r length(brms::parnames(m_pst))` parameters.
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_pst, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
@@ -963,27 +1892,23 @@ mcmc_areas(m_pst, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to PST questions")))
 ```
 
-No significant $t$ parameters even though Q17 and Q18 were close, i.e., most likely they have a negative and positive effect, respectively, but they're not significant on 95% CI.
+Questions $4$, $9$, $12$, $15$, $17$--$18$ are significant.
 
 ####  Self efficacy (SE)
 
+The model estimated `r length(brms::parnames(m_se))` parameters.
+
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_se, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
-  scale_y_discrete(limits=rev, labels = seq(10,3)) +
+  scale_y_discrete(limits=rev, labels = seq(10,1)) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to SE questions")))
 ```
 
-No significant $t$ parameters.
-
-```{r, echo=FALSE, warning=FALSE, message=FALSE}
-mcmc_areas(m_se2, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
-  scale_y_discrete(limits=rev, labels = seq(2,1)) +
-  ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to SE questions")))
-```
-
-No significant $t$ parameters.
+Questions $6$, $7$, and $9$ are significant.
 
 #### Perceived productivity (PP)
+
+The model estimated `r length(brms::parnames(m_pph))` parameters.
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_pph, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
@@ -991,53 +1916,26 @@ mcmc_areas(m_pph, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to PP questions")))
 ```
 
-Questions $2$, $6$, and $11$ show a significant difference when moving from $t_0$ to $t_1$ (lower responses at $t_1$). 
+Question1 $1$ shows a significant difference when moving from $t_0$ to $t_1$ (lower responses at $t_1$). 
 
-The questions were phrased as:
-* Q2 "How often was your performance lower than most workers on your job?"
-* Q6 "How often did you not concentrate enough on your work?"
-* Q11 "How would you compare your overall job performance on the days you worked during the past 4 weeks (28 days) with the performance of most other workers who have a similar type of job?"
-
-Let's examine the parameters for these three questions.
+Let's examine the parameters for this question.
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
-           regex_pars = c("^b_PPHQ215_[A-H]",
-                          "^b_PPHQ215_[J-Z]")) + 
-  ggtitle("Question 2")
+           regex_pars = c("^b_PPHQ115_[A-H]",
+                          "^b_PPHQ115_[J-Z]")) + 
+  ggtitle("Question 1")
 ```
 
-The predictor `age` has a negative effect (the higher the age the lower the response). How does it look like as a conditional effect? A conditional effect keeps all predictors fixed except for the one we're interested in, i.e., `age`.
-
-```{r ce-age, echo=FALSE, warning=FALSE}
-conditional_effects(m_pph, effects="Age", resp = "PPHQ215")
-```
-
-So `age` seems to be the main driver and this is how it looks like. Zero on the $x$-axis is in this case the median age, i.e., approximately $36$ years.
-
-```{r, echo=FALSE, warning=FALSE, message=FALSE}
-mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
-           regex_pars = c("^b_PPHQ615_[A-H]",
-                          "^b_PPHQ615_[J-Z]")) + 
-  ggtitle("Question 6")
-```
-
-Gender has a negative effect (male/transmale responses are lower), however it is actually *not* significant. The only thing we can say is that a number of parameters make respondents, on average, respond with lower values at $t_1$.
-
-```{r, echo=FALSE, warning=FALSE, message=FALSE}
-mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
-           regex_pars = c("^b_PPRQ1110_[A-H]",
-                          "^b_PPRQ1110_[J-Z]")) + 
-  ggtitle("Question 11")
-```
-
-Living with a partner makes respondents answer with higher response in Q11, however it is *not* significant since it *does* cross zero. The only thing we can say is that a number of parameters make respondents, on average, respond with lower values at $t_1$.
+The predictor `gender` has a negative effect (albeit not significant).
 
 # (APPENDIX) Appendices {-} 
 
 # Assumptions concerning the data-generation process {#appA}
 
-In order to design an appropriate model, one of the things we need to make assumptions about is the underlying data-generative model, i.e., what model generated the type of data we have at our disposal. In short, there are four candidates: Cumulative, Continuation ratio, Stopping ratio, and Adjacent category. Above we opted for a default `Cumulative`. Let's instead use LOO to create identical models and then use the same data for all models to compare them from an information theoretical perspective.
+In order to design an appropriate model, one of the things we need to make assumptions about is the underlying data-generative model, i.e., a prior for the data we have, which is usually called the likelihood. 
+
+In short, there are four candidates: Cumulative, Continuation ratio, Stopping ratio, and Adjacent category. Let's use LOO to create identical null models with default priors, and then use the same data for all models to compare them from an information theoretical perspective.
 
 ```{r likelihoods, echo=TRUE, warning=FALSE, message=FALSE}
 bf1 <- bf(mvbind(MAASQ1_1_6,
@@ -1055,7 +1953,7 @@ bf1 <- bf(mvbind(MAASQ1_1_6,
                  MAASQ13_1_6,
                  MAASQ14_1_6,
                  MAASQ15_1_6) ~ 
-            1 )
+            1)
 
 m0 <- brm(bf1,
     family = cumulative,
@@ -1070,12 +1968,14 @@ mcr <- brm(bf1,
     silent = TRUE,
     refresh = 0
     )
+
 msr <- brm(bf1,
     family = sratio,
     data = d,
     silent = TRUE,
     refresh = 0
     )
+
 mac <- brm(bf1,
     family = acat,
     data = d,
@@ -1094,42 +1994,6 @@ loo_compare(m0, mcr, msr, mac)
 
 Evidently, since $\Delta$SE is fairly large, in comparison to the relative difference in expected log pointwise predictive density ($\Delta$elpd), we can safely assume that there's no significant difference between the likelihoods and, thus, opt for the standard approach, i.e., the Cumulative distribution, in this case represented by $\mathcal{M}_0$.
 
-```{r predictors-pers, echo=TRUE, warning=FALSE, message=FALSE}
-bf1 <- bf(mvbind(MAASQ1_1_6,
-                 MAASQ2_1_6,
-                 MAASQ3_1_6,
-                 MAASQ4_1_6,
-                 MAASQ5_1_6,
-                 MAASQ6_1_6,
-                 MAASQ7_1_6,
-                 MAASQ8_1_6,
-                 MAASQ9_1_6,
-                 MAASQ10_1_6,
-                 MAASQ11_1_6,
-                 MAASQ12_1_6,
-                 MAASQ13_1_6,
-                 MAASQ14_1_6,
-                 MAASQ15_1_6) ~ 
-            1 + Age + Gender_0_1 + Occupation + Living_1_4 + t + (1|c|ID))
-
-m_pers <- brm(bf1,
-    family = cumulative,
-    data = d,
-    silent = TRUE,
-    refresh = 0)#,
-    #threads = threading(4))
-
-m_pers <- add_criterion(m_pers, criterion = "loo")
-
-# compare the new model with our null model, it should hopefully be better...
-(l <- loo_compare(m0, m_pers))
-```
-
-Calculating the credible interval ($z_{95\%}=1.96$) we can see that it crosses zero, i.e., adding these predictors makes the relative out of sample prediction capability jump up even though we add seven population-level predictors and one group-level predictor (`Living_1_4` contains three parameters to estimate), but the jump is not large enough. However, in our case we want to investigate the parameters, so we'll keep them.
-
-```{r ci-loo, echo=TRUE, warnings=FALSE}
-l[2,1] + c(-1,1) * 1.96 * l[2,2]
-```
 
 # Computational environment
 

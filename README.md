@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/323355765.svg)](https://zenodo.org/badge/latestdoi/323355765)
+
 # Rise 2 Flow replication package
 
 In `docs/` one can find the R Markdown file (`index.Rmd`) which, when executed in `RStudio` compiles to `index.html`, which can be viewed [online](https://torkar.github.io/rise2flow/).

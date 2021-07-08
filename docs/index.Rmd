@@ -44,11 +44,11 @@ options(mc.cores = parallel::detectCores())
 
 # Introduction
 
-During spring 2021 the Rise 2 Flow study was replicated in yet another experiment `E2`. The setup and execution was very similar to the first instance (`E1`) of the experiment. In the `data/` directory one can find data for both instances `E1/` and `E2/`. In the root of the `data/` directory one can find one XLS file with all relevant data assembled.
+During spring 2021 the Rise 2 Flow study was replicated in yet another experiment `E2`. The setup and execution was very similar to the first instance (`E1`) of the experiment, which took place during 2020. In the `data/` directory one can find data for both instances. 
 
 The purpose of this document is to show how the analysis of the experiments was done. With this replication package anyone can download and rerun the analysis, and check our assumptions.
 
-The experiment used a number of instruments during the entry, exit, and weekly sessions (additionally personal data was collected during the entry session).
+The experiment used a number of instruments during the entry, exit, and weekly sessions (additionally personal data was collected during the entry session).^[For more details we refer you to the manuscript.]
 
 For entry and exit sessions six instruments were used:
 
@@ -270,21 +270,21 @@ if(min(bayesplot::neff_ratio(eval(m_weekly_1)), na.rm = T) <= 0.1) {
 #### Posterior predictive checks
 
 ```{r message=FALSE, warning=FALSE, fig.width=9, fig.height=9}
-tibble(X     = LETTERS[1:2],
+tibble(Experiment     = c("1","2"),
        mu    = c(0, fixef(m_weekly_1)["experiment", 1]),
        sigma = c(1, 1 / (exp(fixef(m_weekly_1)["disc_experiment", 1])))) %>% 
-  expand(nesting(X, mu, sigma),
+  expand(nesting(Experiment, mu, sigma),
          y = seq(from = -5, to = 5, by = 0.1)) %>% 
   mutate(d = dnorm(y, mu, sigma)) %>% 
   
-  ggplot(aes(x = y, y = d, fill = X)) +
+  ggplot(aes(x = y, y = d, fill = Experiment)) +
   geom_area(alpha = 2/3) +
   geom_vline(xintercept = fixef(m_weekly_1)[1:5, 1], linetype = 3, color = sl[9]) +
   scale_fill_scico_d(palette = "lajolla", begin = .33, end = .67) +
   scale_x_continuous(sec.axis = dup_axis(breaks = fixef(m_weekly_1)[1:5, 1] %>% as.double(), 
                                          labels = parse(text = str_c("theta[", 1:5, "]")))) +
   scale_y_continuous(NULL, breaks = NULL, expand = expansion(mult = c(0, 0.05))) +
-  labs(title = "Underlying latent scale for our outome Q1, \n given experimental session X", x = NULL) +
+  labs(title = "Underlying latent scale for Q1 in \nExperiment 1 and 2", x = NULL) +
   theme_light() +
   theme(axis.ticks.x.top = element_blank(),
         text = element_text(size = 20))
@@ -1218,7 +1218,7 @@ p5 <- p[[2]] +
 
 Compare the above with the two below plots where we have separated the effect according to the two experimental sessions.
 
-```{r echo=FALSE}
+```{r echo=FALSE, warning=FALSE, message=FALSE}
 first <- weekly[weekly$experiment==0, ]
 second <- weekly[weekly$experiment==1, ]
 
@@ -1234,7 +1234,7 @@ wf1 <- brm(
     prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
     prior(weibull(2, 1), class = sdgp),
     prior(weibull(2, 1), class = sd)
-  ),
+  ), silent = TRUE, refresh = 0
 )
 
 ws1 <- brm(
@@ -1249,7 +1249,8 @@ ws1 <- brm(
     prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
     prior(weibull(2, 1), class = sdgp),
     prior(weibull(2, 1), class = sd)
-  ), control = list(adapt_delta=0.99)
+  ), control = list(adapt_delta=0.99),
+  silent = TRUE, refresh = 0
 )
 
 wf2 <- brm(
@@ -1264,7 +1265,8 @@ wf2 <- brm(
     prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
     prior(weibull(2, 1), class = sdgp),
     prior(weibull(2, 1), class = sd)
-  ), control = list(adapt_delta=0.99)
+  ), control = list(adapt_delta=0.99),
+  silent = TRUE, refresh = 0
 )
 
 ws2 <- brm(
@@ -1279,7 +1281,8 @@ ws2 <- brm(
     prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
     prior(weibull(2, 1), class = sdgp),
     prior(weibull(2, 1), class = sd)
-  ), control = list(adapt_delta=0.99)
+  ), control = list(adapt_delta=0.99),
+  silent = TRUE, refresh = 0
 )
 
 wf3 <- brm(
@@ -1294,7 +1297,8 @@ wf3 <- brm(
     prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
     prior(weibull(2, 1), class = sdgp),
     prior(weibull(2, 1), class = sd)
-  ), control = list(adapt_delta=0.99)
+  ), control = list(adapt_delta=0.99),
+  silent = TRUE, refresh = 0
 )
 
 ws3 <- brm(
@@ -1309,7 +1313,8 @@ ws3 <- brm(
     prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
     prior(weibull(2, 1), class = sdgp),
     prior(weibull(2, 1), class = sd)
-  ), control = list(adapt_delta=0.99)
+  ), control = list(adapt_delta=0.99),
+  silent = TRUE, refresh = 0
 )
 
 wf4 <- brm(
@@ -1324,7 +1329,8 @@ wf4 <- brm(
     prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
     prior(weibull(2, 1), class = sdgp),
     prior(weibull(2, 1), class = sd)
-  ), control = list(adapt_delta=0.99)
+  ), control = list(adapt_delta=0.99),
+  silent = TRUE, refresh = 0
 )
 
 ws4 <- brm(
@@ -1339,7 +1345,8 @@ ws4 <- brm(
     prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
     prior(weibull(2, 1), class = sdgp),
     prior(weibull(2, 1), class = sd)
-  ), control = list(adapt_delta=0.99)
+  ), control = list(adapt_delta=0.99),
+  silent = TRUE, refresh = 0
 )
 
 wf5 <- brm(
@@ -1354,7 +1361,8 @@ wf5 <- brm(
     prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
     prior(weibull(2, 1), class = sdgp),
     prior(weibull(2, 1), class = sd)
-  ), control = list(adapt_delta=0.99)
+  ), control = list(adapt_delta=0.99),
+  silent = TRUE, refresh = 0
 )
 
 ws5 <- brm(
@@ -1369,7 +1377,8 @@ ws5 <- brm(
     prior(inv_gamma(4.3, 1), class = lscale, coef = gpSeq),
     prior(weibull(2, 1), class = sdgp),
     prior(weibull(2, 1), class = sd)
-  ), control = list(adapt_delta=0.99)
+  ), control = list(adapt_delta=0.99),
+  silent = TRUE, refresh = 0
 )
 
 # plot first session
@@ -1442,7 +1451,7 @@ p5 <- p[[2]] +
 
 (p1 + p2 + p3 + p4 + p5) + 
   plot_layout(nrow = 1) + 
-  plot_annotation(title = '1st session')
+  plot_annotation(title = 'Experiment 1')
 
 
 # next plot
@@ -1515,7 +1524,7 @@ p5 <- p[[2]] +
 
 (p1 + p2 + p3 + p4 + p5) + 
   plot_layout(nrow = 1) + 
-  plot_annotation(title = '2nd session')
+  plot_annotation(title = 'Experiment 2')
 ```
 
 
@@ -1775,6 +1784,7 @@ Design models with predictors from `personal` data, together with our indicator 
 Let's now sample all models with the same predictors we used above (visual prior and posterior predictive checks were done for each model).
 
 ```{r m-maas, echo=TRUE, warning=FALSE, message=FALSE}
+d$Living_1_4_f <- as.factor(d$Living_1_4)
 ################################################################################
 #
 # MAAS
@@ -1795,7 +1805,7 @@ bf1 <- bf(mvbind(MAASQ1_1_6,
                  MAASQ13_1_6,
                  MAASQ14_1_6,
                  MAASQ15_1_6) ~ 
-            1 + Age + Gender_0_1 + Occupation_0_1 + Living_1_4 + t + (1 |e| Experiment_1_2) + (1 |c| ID))
+            1 + Age + Gender_0_1 + Occupation_0_1 + Living_1_4_f + t + (1 |e| Experiment_1_2) + (1 |c| ID))
 
 # Prior predictive checks have been conducted and the probability mass 
 # is distributed evenly on the outcome space
@@ -1853,7 +1863,7 @@ m_spane <- brm(bf1,
     data = d,
     prior = p,
     init = "0",
-    iter = 5e3,
+    iter = 8e3,
     control = list(adapt_delta=0.99),
     # sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
@@ -1893,7 +1903,7 @@ m_pwb <- brm(bf1,
     prior = p,
     init = "0",
     control = list(adapt_delta=0.95),
-    iter = 5e3,
+    iter = 8e3,
     # sample_prior = "only", # use if you only want to sample from prior
     silent = TRUE,
     refresh = 0)
@@ -1953,11 +1963,11 @@ m_pst <- brm(bf1,
 ```{r m-se, echo=TRUE, warning=FALSE, message=FALSE}
 ################################################################################
 #
-# SE - two models (Cumulative and Bernoulli), both multivariate 
+# SE
 #
 ################################################################################
-# NOTE: the first two questions can be analyzed as Bernoulli 
-bf1 <- bf(mvbind(SEQ1_1_4, # this and the next outcome only has two categories
+
+bf1 <- bf(mvbind(SEQ1_1_4,
                  SEQ2_1_4,
                  SEQ3_1_4,
                  SEQ4_1_4,
@@ -2037,9 +2047,11 @@ Before we put any trust in these models we need to check a number of diagnostics
 
 ### Diagnostics
 
-First, we check general HMC diagnostics. Second, we check that $\widehat{R} \leq 1.01$.
+Hamiltonian Monte Carlo diagnostics indicate all is well (we've also checked traceplots, effective sample sizes, and $\widehat{R}$ for all models). 
 
-```{r diagnostics, echo = FALSE}
+The diagnostics code is not executed in this `Rmd` since it takes up a lot of space. However, if one wants to, in the `index.Rmd` (used to generate the `index.html`) one can see all diagnostics that were checked and if one wants to rerun it then simply change the code chunk to `eval=TRUE` and `include=TRUE`.
+
+```{r diagnostics, eval=FALSE, include=FALSE}
 # ugly as shit but there's a bug in R's lazyLoadDBinsertVariable 
 # so eval w/ for loop doesn't work...
 
@@ -2095,7 +2107,6 @@ if (max(bayesplot::rhat(m_pph), na.rm = T) >= 1.01) {
 ```
 
 
-Hamiltonian Monte Carlo diagnostics indicate all is well (we've also checked traceplots, effective sample sizes, and other diagnostics for all models).
 
 ### Parameter estimates
 
@@ -2125,9 +2136,9 @@ mcmc_areas(m_maas, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to MAAS questions")))
 ```
 
-For Questions $1$--$8$, $11$--$12$, and $14$ the parameter $t$ is negative. In short, the respondents answered with lower responses at $t_1$ than at $t_0$ for these questions.
+For Questions $1$--$8$, $11$--$12$, and $14$ the parameter $t$ is negative. In short, the respondents answered with higher responses at $t_0$ than at $t_1$ for these questions.
 
-The questions were phrased in the following way:
+Some examples of how the questions were phrased:^[More details can be found in the manuscript.]
 
 * Q1 "I could be experiencing some emotion and not be conscious of it until some time later."
 * Q2 "I break or spill things because of carelessness, not paying attention, or thinking of something else."
@@ -2171,7 +2182,17 @@ mcmc_areas(m_spane, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to SPANE questions")))
 ```
 
-All $t$ parameters are significant (either negative or positive). If a parameter is positive (i.e., to the right of zero), then subjects responded with higher values at $t_1$. 
+All $t$ parameters are significant (positive), i.e, subjects responded with higher values at $t_1$. 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_spane, prob = 0.5, prob_outer = 0.95, regex_pars = "Age$")
+
+mcmc_areas(m_spane, prob = 0.5, prob_outer = 0.95, regex_pars = "Gender_0_1$")
+
+mcmc_areas(m_spane, prob = 0.5, prob_outer = 0.95, regex_pars = "Occupation_0_1$")
+
+mcmc_areas(m_spane, prob = 0.5, prob_outer = 0.95, regex_pars = c("Living_1_4"))
+```
 
 #### Personal well-being index (PWB)
 
@@ -2185,9 +2206,21 @@ mcmc_areas(m_pwb, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
 
 All $t$ parameters are significant, i.e., higher values at $t_1$, except for Q$3$.
 
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_pwb, prob = 0.5, prob_outer = 0.95, regex_pars = "Age$")
+
+mcmc_areas(m_pwb, prob = 0.5, prob_outer = 0.95, regex_pars = "Gender_0_1$")
+
+mcmc_areas(m_pwb, prob = 0.5, prob_outer = 0.95, regex_pars = "Occupation_0_1$")
+
+mcmc_areas(m_pwb, prob = 0.5, prob_outer = 0.95, regex_pars = c("Living_1_4"))
+```
+
 #### Positive thinking (PST)
 
 The model estimated `r length(brms::parnames(m_pst))` parameters.
+
+Concerning the temporal variable,
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_pst, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
@@ -2197,9 +2230,23 @@ mcmc_areas(m_pst, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
 
 Questions $4$, $9$, $12$, $15$, $17$--$18$ are significant.
 
+Concerning the remaining predictors,
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_pst, prob = 0.5, prob_outer = 0.95, regex_pars = "Age$")
+
+mcmc_areas(m_pst, prob = 0.5, prob_outer = 0.95, regex_pars = "Gender_0_1$")
+
+mcmc_areas(m_pst, prob = 0.5, prob_outer = 0.95, regex_pars = "Occupation_0_1$")
+
+mcmc_areas(m_pst, prob = 0.5, prob_outer = 0.95, regex_pars = c("Living_1_4"))
+```
+
 ####  Self efficacy (SE)
 
 The model estimated `r length(brms::parnames(m_se))` parameters.
+
+Concerning the temporal variable,
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_se, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
@@ -2209,9 +2256,23 @@ mcmc_areas(m_se, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
 
 Questions $6$, $7$, and $9$ are significant.
 
+Concerning the remaining predictors,
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mcmc_areas(m_se, prob = 0.5, prob_outer = 0.95, regex_pars = "Age$")
+
+mcmc_areas(m_se, prob = 0.5, prob_outer = 0.95, regex_pars = "Gender_0_1$")
+
+mcmc_areas(m_se, prob = 0.5, prob_outer = 0.95, regex_pars = "Occupation_0_1$")
+
+mcmc_areas(m_se, prob = 0.5, prob_outer = 0.95, regex_pars = c("Living_1_4"))
+```
+
 #### Perceived productivity (PP)
 
 The model estimated `r length(brms::parnames(m_pph))` parameters.
+
+Concerning the temporal variable,
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 mcmc_areas(m_pph, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
@@ -2219,19 +2280,19 @@ mcmc_areas(m_pph, regex_pars = "_t$", prob = 0.5, prob_outer = 0.95) +
   ggtitle(expression(paste("Temporal variable ", italic(t), " listed according to PP questions")))
 ```
 
-Question1 $1$ shows a significant difference when moving from $t_0$ to $t_1$ (lower responses at $t_1$). 
+Question $1$ shows a significant difference when moving from $t_0$ to $t_1$ (lower responses at $t_1$). 
 
-Let's examine the parameters for this question.
+Concerning the remaining predictors,
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
-mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95,
-           regex_pars = c("^b_PPHQ115_[A-H]",
-                          "^b_PPHQ115_[J-Z]")) + 
-  ggtitle("Question 1")
+mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95, regex_pars = "Age$")
+
+mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95, regex_pars = "Gender_0_1$")
+
+mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95, regex_pars = "Occupation_0_1$")
+
+mcmc_areas(m_pph, prob = 0.5, prob_outer = 0.95, regex_pars = c("Living_1_4"))
 ```
-
-The predictor `gender` has a negative effect (albeit not significant).
-
 # (APPENDIX) Appendices {-} 
 
 # Assumptions concerning the data-generation process {#appA}

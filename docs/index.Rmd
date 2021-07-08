@@ -6,7 +6,7 @@ date: "First version: 2021-05-05. Current version: `r Sys.time()`."
 output: 
   bookdown::html_document2:
     toc: true
-    toc_float: true
+    toc_float: false
     scroll_highlight: yes
     number_sections: true
 bibliography: references.bib

@@ -2358,6 +2358,340 @@ loo_compare(m0, mcr, msr, mac)
 
 Evidently, since $\Delta$SE is fairly large, in comparison to the relative difference in expected log pointwise predictive density ($\Delta$elpd), we can safely assume that there's no significant difference between the likelihoods and, thus, opt for the standard approach, i.e., the Cumulative distribution, in this case represented by $\mathcal{M}_0$.
 
+# Analysis of the treatment effect Session attendance
+
+A reviewer asked for an additional analysis of the treatment effect (concerning session attendance).
+
+Thankfully we saved session attendance for each individual participating in the survey.
+
+Load the CSV file, remove all rows that have NAs in columns 5:88 (i.e., the survey instruments), and check size of $N$.
+
+```{r}
+d2 <- read.csv(here("data/attendance.csv"))
+d2 <- d2[complete.cases(d2[5:88]),]
+table(table(d2$ID))
+```
+
+We have `r table(table(d2$ID))[1]` unique subjects that filled out the exit *or* entry survey, and we have `r table(table(d2$ID))[2]` unique subjects that filled the exit *and* entry survey. In total we thus have $N=58$ subjects and $n=101$ rows.
+
+```{r echo=FALSE, results=FALSE}
+# MAAS instrument
+for(j in 5:19){
+  set(d2, i=NULL, j=j, value=factor(d2[[j]], levels = c("Almost never", "Very infrequently", "Somewhat infrequently", "Somewhat frequently", "Very frequently", "Almost always"), ordered = TRUE))
+}
+
+# SPANE instrument
+for(j in 20:31){
+  set(d2, i=NULL, j=j, value=factor(d2[[j]], levels = c("Very rarely or never", "Rarely", "Sometimes", "Often", "Very often or always"), ordered = TRUE))
+}
+
+# PWB instrument
+for(j in 32:39){
+  set(d2, i=NULL, j=j, value=factor(d2[[j]], levels = c("Strongly disagree", "Disagree", "Slightly disagree", "Mixed or neither agree nor disagree", "Slightly agree", "Agree", "Strongly agree"), ordered = TRUE))
+}
+
+# PST instrument
+for(i in 40:61)
+  d2[,eval(i)] <- ifelse(d2[eval(i)] == 'Yes', 1, 0)
+
+# SEQ instrument
+for(j in 62:71){
+  set(d2, i=NULL, j=j, value=factor(d2[[j]], levels = c("Not true","Hardly true","Rather true","Exactly true"), ordered = TRUE))
+}
+
+# PP instrument
+for(j in 72:78){
+  set(d2, i=NULL, j=j, value=factor(d2[[j]], levels = c("None of the time","A little of the time","Some of the time","Most of the time","All of the time"), ordered = TRUE))
+}
+for(j in 79:81){
+  set(d2, i=NULL, j=j, value=factor(d2[[j]], levels = c("1","2","3","4","5","6","7","8","9","10"), ordered = TRUE))
+}
+for(j in 82:82){
+  set(d2, i=NULL, j=j, value=factor(d2[[j]], levels = c("You were a lot worse than other workers","You were a little worse than other workers","You were somewhat worse than other workers","You were about average","You were somewhat better than other workers","You were a little better than other workers","You were a lot better than other workers"), ordered = TRUE))
+}
+
+# make sure Age is standardized
+d2$Age <- scale(d2$Age)
+
+# In both attendance columns, use 0 instead of NA, since NA implies 0
+d2$live_sessions <- ifelse(is.na(d2$live_sessions) == TRUE, 0, d2$live_sessions)
+d2$recorded_sessions <- ifelse(is.na(d2$recorded_sessions) == TRUE, 0, d2$recorded_sessions)
+
+# Since we want to look at the effect of attendance we might as well standardize the columns
+d2$live_sessions <- scale(d2$live_sessions)
+d2$recorded_sessions <- scale(d2$recorded_sessions)
+```
+
+## Prior predictive checks
+
+There will be six multivariate models (one for each survey instrument), and as in the main analysis we'll assume a cumulative likelihood.
+
+For the models we want to predict the outcome given LiveSessions and RecordedSessions as main effects. Additionally we will use a varying intercept for each $ID$.
+
+```{r echo=FALSE, results=FALSE}
+formula_maas <- bf(
+  mvbind(MAASQ1_1_6,
+         MAASQ2_1_6,
+         MAASQ3_1_6,
+         MAASQ4_1_6,
+         MAASQ5_1_6,
+         MAASQ6_1_6,
+         MAASQ7_1_6,
+         MAASQ8_1_6,
+         MAASQ9_1_6,
+         MAASQ10_1_6,
+         MAASQ11_1_6,
+         MAASQ12_1_6,
+         MAASQ13_1_6,
+         MAASQ14_1_6,
+         MAASQ15_1_6) ~ 
+    1 + mo(live_sessions) + 
+    mo(recorded_sessions) + (1 |c| ID)
+  )
+
+p <- get_prior(formula_maas, data=d2, family=cumulative(probit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
+  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
+         )
+
+m_maas_s <- brm(formula_maas,
+    family = cumulative(probit),
+    data = d2,
+    prior = p,
+    sample_prior = "only", 
+    iter = 5e3
+    )
+```
+
+If we plot our prior distribution (below) we see that the medians are fairly evenly distributed (points) with large uncertainty (lines) compared to our empirical data (bars).
+
+```{r echo = FALSE}
+# use the below to do prior and posterior predictive checks
+# change resp to the response variable you want to check 
+pp_check(m_maas_s, resp = "MAASQ116", type = "bars", ndraws = 250) 
+```
+
+## Sampling and diagnostics
+Let us now sample the model with data and check diagnostics.
+
+```{r, warning=FALSE}
+m_maas_s <- brm(formula_maas,
+    family = cumulative(probit),
+    data = d2,
+    prior = p,
+    silent = TRUE,
+    iter = 5e3,
+    inits = "0"
+    )
+
+# Check diagnostics
+rstan::check_hmc_diagnostics(m_maas_s$fit)
+if (max(bayesplot::rhat(m_maas_s), na.rm = T) >= 1.01) {
+  message("Warning: Rhat >= 1.01")
+} else {
+  cat("Rhat:\n")
+  message("Rhat values ok.")
+}
+```
+
+and then we do the above for all instruments. We've done prior predictive checks on all models.
+
+The code has been hidden but can be found in the Rmarkdown document.
+
+```{r, warning=FALSE, echo=FALSE}
+formula_spane <- bf(
+  mvbind(SPANEQ1_1_5,
+         SPANEQ2_1_5,
+         SPANEQ3_1_5,
+         SPANEQ4_1_5,
+         SPANEQ5_1_5,
+         SPANEQ6_1_5,
+         SPANEQ7_1_5,
+         SPANEQ8_1_5,
+         SPANEQ9_1_5,
+         SPANEQ10_1_5,
+         SPANEQ11_1_5,
+         SPANEQ12_1_5) ~ 
+    1 + mo(live_sessions) + 
+    mo(recorded_sessions) + (1 |c| ID)
+)
+
+p <- get_prior(formula_spane, data=d2, family=cumulative(probit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
+  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
+  )
+
+m_spane_s <- brm(formula_spane,
+                family = cumulative(probit),
+                data = d2,
+                prior = p,
+                silent = TRUE,
+                iter = 5e3,
+                control = list(adapt_delta=0.9),
+                inits = "0"
+)
+
+formula_pwb <- bf(
+  mvbind(PWBQ1_1_7,
+         PWBQ2_1_7,
+         PWBQ3_1_7,
+         PWBQ4_1_7,
+         PWBQ5_1_7,
+         PWBQ6_1_7,
+         PWBQ7_1_7,
+         PWBQ8_1_7) ~ 
+    1 + mo(live_sessions) + 
+    mo(recorded_sessions) + (1 |c| ID)
+)
+
+p <- get_prior(formula_pwb, data=d2, family=cumulative(probit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
+  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
+  )
+
+m_pwb_s <- brm(formula_pwb,
+                 family = cumulative(probit),
+                 data = d2,
+                 prior = p,
+                 silent = TRUE,
+                 iter = 5e3,
+                 inits = "0"
+)
+
+formula_pst <- bf(
+  mvbind(PSTQ1_0_1,
+         PSTQ2_0_1,
+         PSTQ3_0_1,
+         PSTQ4_0_1,
+         PSTQ5_0_1,
+         PSTQ6_0_1,
+         PSTQ7_0_1,
+         PSTQ8_0_1,
+         PSTQ9_0_1,
+         PSTQ10_0_1,
+         PSTQ11_0_1,
+         PSTQ12_0_1,
+         PSTQ13_0_1,
+         PSTQ14_0_1,
+         PSTQ15_0_1,
+         PSTQ16_0_1,
+         PSTQ17_0_1,
+         PSTQ18_0_1,
+         PSTQ19_0_1,
+         PSTQ20_0_1,
+         PSTQ21_0_1,
+         PSTQ22_0_1) ~ 
+    1 + mo(live_sessions) + 
+    mo(recorded_sessions) + (1 |c| ID)
+)
+
+p <- get_prior(formula_pst, data=d2, family=bernoulli(logit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
+  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
+  )
+
+m_pst_s <- brm(formula_pst,
+               family = bernoulli(logit),
+               data = d2,
+               prior = p,
+               silent = TRUE,
+               iter = 5e3,
+               control = list(adapt_delta=0.9),
+               inits = "0"
+)
+
+formula_se <- bf(
+  mvbind(SEQ1_1_4,
+         SEQ2_1_4,
+         SEQ3_1_4,
+         SEQ4_1_4,
+         SEQ5_1_4,
+         SEQ6_1_4,
+         SEQ7_1_4,
+         SEQ8_1_4,
+         SEQ9_1_4,
+         SEQ10_1_4) ~ 
+    1 + mo(live_sessions) + 
+    mo(recorded_sessions) + (1 |c| ID)
+)
+
+p <- get_prior(formula_se, data=d2, family=cumulative(probit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
+  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
+  )
+
+m_se_s <- brm(formula_se,
+               family = cumulative(probit),
+               data = d2,
+               prior = p,
+               silent = TRUE,
+               iter = 5e3,
+               inits = "0"
+)
+
+formula_pph <- bf(
+  mvbind(PPHQ1_1_5,
+         PPHQ2_1_5,
+         PPHQ3_1_5,
+         PPHQ4_1_5,
+         PPHQ5_1_5,
+         PPHQ6_1_5,
+         PPHQ7_1_5,
+         PPRQ1_1_10,
+         PPRQ2_1_10,
+         PPRQ3_1_10,
+         PPOQ1_1_7) ~ 
+    1 + mo(live_sessions) + 
+    mo(recorded_sessions) + (1 |c| ID)
+)
+
+p <- get_prior(formula_pph, data=d2, family=cumulative(probit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
+  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
+  )
+
+m_pph_s <- brm(formula_pph,
+              family = cumulative(probit),
+              data = d2,
+              prior = p,
+              silent = TRUE,
+              iter = 5e3,
+              inits = "0"
+)
+
+# To get sign params, for each model do,
+# a <- as.data.frame(fixef(m_maas_s)) %>% rownames_to_column() %>% filter(grepl('session', rowname))
+# a[sign(a$Q97.5) == sign(a$Q2.5),]
+```
+
+```{r}
+models <- c('m_maas_s', 'm_spane_s', 'm_pwb_s', 'm_pst_s', 'm_se_s', 'm_pph_s')
+
+for(m in models) {
+  a <- as.data.frame(fixef(eval(as.symbol(m)))) %>% rownames_to_column() %>% filter(grepl('session', rowname))
+  print(a[sign(a$Q97.5) == sign(a$Q2.5),])
+}
+```
+
+Above we see all 'session' effects that do not cross the 95% credible interval.
 
 # Computational environment
 

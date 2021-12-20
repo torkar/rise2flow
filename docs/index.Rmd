@@ -2417,16 +2417,20 @@ d2$Age <- scale(d2$Age)
 d2$live_sessions <- ifelse(is.na(d2$live_sessions) == TRUE, 0, d2$live_sessions)
 d2$recorded_sessions <- ifelse(is.na(d2$recorded_sessions) == TRUE, 0, d2$recorded_sessions)
 
+# create a total_sessions column
+d2$total_sessions <- d2$live_sessions + d2$recorded_sessions
+
 # Since we want to look at the effect of attendance we might as well standardize the columns
 d2$live_sessions <- scale(d2$live_sessions)
 d2$recorded_sessions <- scale(d2$recorded_sessions)
+d2$total_sessions <- scale(d2$total_sessions)
 ```
 
 ## Prior predictive checks
 
 There will be six multivariate models (one for each survey instrument), and as in the main analysis we'll assume a cumulative likelihood.
 
-For the models we want to predict the outcome given LiveSessions and RecordedSessions as main effects. Additionally we will use a varying intercept for each $ID$.
+For the models we want to predict the outcome given Live Sessions and Recorded Sessions as main effects. Additionally we will use a varying intercept for each $ID$.
 
 ```{r echo=FALSE, results=FALSE}
 formula_maas <- bf(
@@ -2445,17 +2449,15 @@ formula_maas <- bf(
          MAASQ13_1_6,
          MAASQ14_1_6,
          MAASQ15_1_6) ~ 
-    1 + mo(live_sessions) + 
-    mo(recorded_sessions) + (1 |c| ID)
+    1 + live_sessions + 
+    recorded_sessions + (1 |c| ID)
   )
 
 p <- get_prior(formula_maas, data=d2, family=cumulative(probit)) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
   mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
   mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
-  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
-  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
-         )
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
 
 m_maas_s <- brm(formula_maas,
     family = cumulative(probit),
@@ -2483,6 +2485,7 @@ m_maas_s <- brm(formula_maas,
     data = d2,
     prior = p,
     silent = TRUE,
+    refresh = 0,
     iter = 5e3,
     inits = "0"
     )
@@ -2515,17 +2518,15 @@ formula_spane <- bf(
          SPANEQ10_1_5,
          SPANEQ11_1_5,
          SPANEQ12_1_5) ~ 
-    1 + mo(live_sessions) + 
-    mo(recorded_sessions) + (1 |c| ID)
+    1 + live_sessions + 
+    recorded_sessions + (1 |c| ID)
 )
 
 p <- get_prior(formula_spane, data=d2, family=cumulative(probit)) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
   mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
   mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
-  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
-  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
-  )
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
 
 m_spane_s <- brm(formula_spane,
                 family = cumulative(probit),
@@ -2533,8 +2534,9 @@ m_spane_s <- brm(formula_spane,
                 prior = p,
                 silent = TRUE,
                 iter = 5e3,
+                refresh = 0,
                 control = list(adapt_delta=0.9),
-                inits = "0"
+                inits = 0
 )
 
 formula_pwb <- bf(
@@ -2546,25 +2548,24 @@ formula_pwb <- bf(
          PWBQ6_1_7,
          PWBQ7_1_7,
          PWBQ8_1_7) ~ 
-    1 + mo(live_sessions) + 
-    mo(recorded_sessions) + (1 |c| ID)
+    1 + live_sessions + 
+    recorded_sessions + (1 |c| ID)
 )
 
 p <- get_prior(formula_pwb, data=d2, family=cumulative(probit)) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
   mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
   mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
-  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
-  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
-  )
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
 
 m_pwb_s <- brm(formula_pwb,
                  family = cumulative(probit),
                  data = d2,
                  prior = p,
+                 refresh = 0,
                  silent = TRUE,
                  iter = 5e3,
-                 inits = "0"
+                 inits = 0
 )
 
 formula_pst <- bf(
@@ -2590,26 +2591,25 @@ formula_pst <- bf(
          PSTQ20_0_1,
          PSTQ21_0_1,
          PSTQ22_0_1) ~ 
-    1 + mo(live_sessions) + 
-    mo(recorded_sessions) + (1 |c| ID)
+    1 + live_sessions + 
+    recorded_sessions + (1 |c| ID)
 )
 
 p <- get_prior(formula_pst, data=d2, family=bernoulli(logit)) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
   mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
   mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
-  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
-  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
-  )
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
 
 m_pst_s <- brm(formula_pst,
                family = bernoulli(logit),
                data = d2,
                prior = p,
                silent = TRUE,
+               refresh = 0,
                iter = 5e3,
                control = list(adapt_delta=0.9),
-               inits = "0"
+               inits = 0
 )
 
 formula_se <- bf(
@@ -2623,25 +2623,24 @@ formula_se <- bf(
          SEQ8_1_4,
          SEQ9_1_4,
          SEQ10_1_4) ~ 
-    1 + mo(live_sessions) + 
-    mo(recorded_sessions) + (1 |c| ID)
+    1 + live_sessions + 
+    recorded_sessions + (1 |c| ID)
 )
 
 p <- get_prior(formula_se, data=d2, family=cumulative(probit)) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
   mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
   mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
-  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
-  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
-  )
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
 
 m_se_s <- brm(formula_se,
                family = cumulative(probit),
                data = d2,
                prior = p,
                silent = TRUE,
+               refresh = 0,
                iter = 5e3,
-               inits = "0"
+               inits = 0
 )
 
 formula_pph <- bf(
@@ -2656,25 +2655,24 @@ formula_pph <- bf(
          PPRQ2_1_10,
          PPRQ3_1_10,
          PPOQ1_1_7) ~ 
-    1 + mo(live_sessions) + 
-    mo(recorded_sessions) + (1 |c| ID)
+    1 + live_sessions + 
+    recorded_sessions + (1 |c| ID)
 )
 
 p <- get_prior(formula_pph, data=d2, family=cumulative(probit)) %>%
   mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
   mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
   mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
-  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior)) %>%
-  mutate(prior = ifelse(class == "simo", "dirichlet(2)", prior)
-  )
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
 
 m_pph_s <- brm(formula_pph,
               family = cumulative(probit),
               data = d2,
               prior = p,
+              refresh = 0,
               silent = TRUE,
               iter = 5e3,
-              inits = "0"
+              inits = 0
 )
 
 # To get sign params, for each model do,
@@ -2692,6 +2690,221 @@ for(m in models) {
 ```
 
 Above we see all 'session' effects that do not cross the 95% credible interval.
+
+### Total sessions effect
+
+Let's also have a look at the 'total' sessions effect, i.e., where we combine live and recorded sessions into one column and use that as a predictor (the models and sampling has been hidden to not clutter this page). Below follows all significant output ($95$\% credible interval).
+
+```{r, warning=FALSE, echo=FALSE}
+formula_maas <- bf(
+  mvbind(MAASQ1_1_6,
+         MAASQ2_1_6,
+         MAASQ3_1_6,
+         MAASQ4_1_6,
+         MAASQ5_1_6,
+         MAASQ6_1_6,
+         MAASQ7_1_6,
+         MAASQ8_1_6,
+         MAASQ9_1_6,
+         MAASQ10_1_6,
+         MAASQ11_1_6,
+         MAASQ12_1_6,
+         MAASQ13_1_6,
+         MAASQ14_1_6,
+         MAASQ15_1_6) ~ 
+    1 + total_sessions + (1 |c| ID)
+  )
+
+p <- get_prior(formula_maas, data=d2, family=cumulative(probit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_maas_t <- brm(formula_maas,
+    family = cumulative(probit),
+    data = d2,
+    prior = p,
+    iter = 5e3,
+    refresh = 0,
+    init = 0
+    )
+
+formula_spane <- bf(
+  mvbind(SPANEQ1_1_5,
+         SPANEQ2_1_5,
+         SPANEQ3_1_5,
+         SPANEQ4_1_5,
+         SPANEQ5_1_5,
+         SPANEQ6_1_5,
+         SPANEQ7_1_5,
+         SPANEQ8_1_5,
+         SPANEQ9_1_5,
+         SPANEQ10_1_5,
+         SPANEQ11_1_5,
+         SPANEQ12_1_5) ~ 
+    1 + total_sessions + (1 |c| ID)
+)
+
+p <- get_prior(formula_spane, data=d2, family=cumulative(probit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_spane_t <- brm(formula_spane,
+                family = cumulative(probit),
+                data = d2,
+                prior = p,
+                silent = TRUE,
+                refresh = 0,
+                iter = 5e3,
+                control = list(adapt_delta=0.9),
+                inits = 0
+)
+
+formula_pwb <- bf(
+  mvbind(PWBQ1_1_7,
+         PWBQ2_1_7,
+         PWBQ3_1_7,
+         PWBQ4_1_7,
+         PWBQ5_1_7,
+         PWBQ6_1_7,
+         PWBQ7_1_7,
+         PWBQ8_1_7) ~ 
+    1 + total_sessions + (1 |c| ID)
+)
+
+p <- get_prior(formula_pwb, data=d2, family=cumulative(probit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_pwb_t <- brm(formula_pwb,
+                 family = cumulative(probit),
+                 data = d2,
+                 prior = p,
+                 silent = TRUE,
+                 refresh = 0,
+                 iter = 5e3,
+                 inits = 0
+)
+
+formula_pst <- bf(
+  mvbind(PSTQ1_0_1,
+         PSTQ2_0_1,
+         PSTQ3_0_1,
+         PSTQ4_0_1,
+         PSTQ5_0_1,
+         PSTQ6_0_1,
+         PSTQ7_0_1,
+         PSTQ8_0_1,
+         PSTQ9_0_1,
+         PSTQ10_0_1,
+         PSTQ11_0_1,
+         PSTQ12_0_1,
+         PSTQ13_0_1,
+         PSTQ14_0_1,
+         PSTQ15_0_1,
+         PSTQ16_0_1,
+         PSTQ17_0_1,
+         PSTQ18_0_1,
+         PSTQ19_0_1,
+         PSTQ20_0_1,
+         PSTQ21_0_1,
+         PSTQ22_0_1) ~ 
+    1 + total_sessions + (1 |c| ID)
+)
+
+p <- get_prior(formula_pst, data=d2, family=bernoulli(logit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_pst_t <- brm(formula_pst,
+               family = bernoulli(logit),
+               data = d2,
+               prior = p,
+               refresh = 0,
+               silent = TRUE,
+               iter = 5e3,
+               control = list(adapt_delta=0.9),
+               inits = 0
+)
+
+formula_se <- bf(
+  mvbind(SEQ1_1_4,
+         SEQ2_1_4,
+         SEQ3_1_4,
+         SEQ4_1_4,
+         SEQ5_1_4,
+         SEQ6_1_4,
+         SEQ7_1_4,
+         SEQ8_1_4,
+         SEQ9_1_4,
+         SEQ10_1_4) ~ 
+    1 + total_sessions + (1 |c| ID)
+)
+
+p <- get_prior(formula_se, data=d2, family=cumulative(probit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_se_t <- brm(formula_se,
+               family = cumulative(probit),
+               data = d2,
+               prior = p,
+               refresh = 0,
+               silent = TRUE,
+               iter = 5e3,
+               inits = 0
+)
+
+formula_pph <- bf(
+  mvbind(PPHQ1_1_5,
+         PPHQ2_1_5,
+         PPHQ3_1_5,
+         PPHQ4_1_5,
+         PPHQ5_1_5,
+         PPHQ6_1_5,
+         PPHQ7_1_5,
+         PPRQ1_1_10,
+         PPRQ2_1_10,
+         PPRQ3_1_10,
+         PPOQ1_1_7) ~ 
+    1 + total_sessions + (1 |c| ID)
+)
+
+p <- get_prior(formula_pph, data=d2, family=cumulative(probit)) %>%
+  mutate(prior = ifelse(class == "b", "normal(0,3)", prior)) %>%
+  mutate(prior = ifelse(class == "cor", "lkj(2)", prior)) %>%
+  mutate(prior = ifelse(class == "Intercept", "normal(0,5)", prior)) %>%
+  mutate(prior = ifelse(class == "sd", "weibull(2,1)", prior))
+
+m_pph_t <- brm(formula_pph,
+              family = cumulative(probit),
+              data = d2,
+              refresh = 0,
+              prior = p,
+              silent = TRUE,
+              iter = 5e3,
+              inits = 0
+)
+```
+
+```{r}
+models <- c('m_maas_t', 'm_spane_t', 'm_pwb_t', 'm_pst_t', 'm_se_t', 'm_pph_t')
+
+for(m in models) {
+  a <- as.data.frame(fixef(eval(as.symbol(m)))) %>% rownames_to_column() %>% filter(grepl('session', rowname))
+  print(a[sign(a$Q97.5) == sign(a$Q2.5),])
+}
+
+```
 
 # Computational environment
 
